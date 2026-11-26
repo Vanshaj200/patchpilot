@@ -7,10 +7,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from patchpilot.config import Settings
 from patchpilot.cost import estimate_tokens
 from patchpilot.diff import ChangedFile, read_new_version
 from patchpilot.llm import LLMClient
 from patchpilot.prompts import REVIEW_PROMPTS, render_diff
+from patchpilot.router import choose_model
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +57,7 @@ def estimate_tokens_saved(files: Sequence[ChangedFile], repo: Path) -> int | Non
 
 
 def review_diff(
-    files: Sequence[ChangedFile], llm: LLMClient, prompt_version: str, repo: Path
+    files: Sequence[ChangedFile], llm: LLMClient, settings: Settings, repo: Path
 ) -> Review:
     """Ask Claude to review the changed text files. No request is sent if there are none."""
     reviewable = [changed for changed in files if changed.hunks and not changed.is_binary]
@@ -65,10 +67,11 @@ def review_diff(
     tokens_saved = estimate_tokens_saved(reviewable, repo)
     logger.info("estimated input tokens saved by sending only hunks: %s", tokens_saved)
     review = llm.complete(
-        system=REVIEW_PROMPTS[prompt_version],
+        system=REVIEW_PROMPTS[settings.prompt_version],
         user=render_diff(reviewable),
         schema=Review,
         feature="review",
+        model=choose_model(reviewable, settings).model,
         tokens_saved=tokens_saved,
     )
 

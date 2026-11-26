@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from conftest import FakeAPI, reply
 
+from patchpilot.config import Settings
 from patchpilot.diff import ChangedFile, parse_diff
 from patchpilot.gentests import find_target, generate_tests, module_name
 from patchpilot.llm import LLMError
@@ -121,7 +122,7 @@ def test_generates_tests_from_the_changed_function_only(api: FakeAPI, tmp_path: 
     api.responses = [reply({"test_code": code})]
 
     result = generate_tests(
-        [change("+    return math.pi * radius**2", start=11)], tmp_path, api.llm(), "v2"
+        [change("+    return math.pi * radius**2", start=11)], tmp_path, api.llm(), Settings()
     )
 
     assert result == code
@@ -135,9 +136,9 @@ def test_generates_tests_from_the_changed_function_only(api: FakeAPI, tmp_path: 
 def test_no_request_without_changed_functions(api: FakeAPI, tmp_path: Path) -> None:
     changed = change("+import math", start=1)
 
-    assert generate_tests([changed], tmp_path, api.llm(), "v2") is None
+    assert generate_tests([changed], tmp_path, api.llm(), Settings()) is None
     (tmp_path / "shapes.py").write_text(SOURCE)
-    assert generate_tests([changed], tmp_path, api.llm(), "v2") is None
+    assert generate_tests([changed], tmp_path, api.llm(), Settings()) is None
     assert api.requests == []
 
 
@@ -147,6 +148,8 @@ def test_unusable_test_code_is_rejected(api: FakeAPI, tmp_path: Path, code: str)
     api.responses = [reply({"test_code": code})]
 
     with pytest.raises(LLMError, match="did not match"):
-        generate_tests([change("+    return 0", start=6)], tmp_path, api.llm(), "v1")
+        generate_tests(
+            [change("+    return 0", start=6)], tmp_path, api.llm(), Settings(prompt_version="v1")
+        )
 
     assert api.records[0].status == "invalid_reply"

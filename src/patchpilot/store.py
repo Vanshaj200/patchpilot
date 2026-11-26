@@ -36,7 +36,8 @@ INSERT INTO requests (
 
 # SUM skips NULL, so unknown costs are counted separately instead of passing as zero.
 _SUMMARY = """
-SELECT feature, model, COUNT(*), SUM(input_tokens), SUM(output_tokens),
+SELECT feature, model, COUNT(*), SUM(status = 'cache_hit'),
+       SUM(input_tokens), SUM(output_tokens),
        SUM(cache_write_tokens), SUM(cache_read_tokens), TOTAL(cost_usd),
        SUM(cost_usd IS NULL), TOTAL(tokens_saved)
 FROM requests
@@ -69,6 +70,7 @@ class SummaryRow:
     feature: str
     model: str
     requests: int
+    cache_hits: int  # requests answered by the local response cache
     input_tokens: int
     output_tokens: int
     cache_write_tokens: int

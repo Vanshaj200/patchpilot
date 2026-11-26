@@ -35,7 +35,8 @@ GENTESTS_PROMPTS: dict[str, str] = {
     "v2": """\
 You write pytest tests for changed Python functions.
 
-For each file you get the module name to import, its import lines and the changed functions.
+For each file you get the module name to import, its imports and relevant module-level values, and
+the changed functions.
 
 Write one self-contained test module that:
 - imports the code under test with the given module name
@@ -59,14 +60,14 @@ class TestTarget:
 
     path: str
     module: str
-    imports: tuple[str, ...]
+    context: tuple[str, ...]  # imports and module-level values
     snippets: tuple[str, ...]
 
 
 def render_targets(targets: Sequence[TestTarget]) -> str:
     sections: list[str] = []
     for target in targets:
-        code = "\n\n".join(["\n".join(target.imports), *target.snippets]).strip()
+        code = "\n\n".join(["\n".join(target.context), *target.snippets]).strip()
         sections.append(f"File: {target.path}\nModule: {target.module}\n```python\n{code}\n```")
     return "\n\n".join(sections)
 

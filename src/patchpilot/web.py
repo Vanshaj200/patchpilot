@@ -8,6 +8,7 @@ In both modes the server never runs code (tests run inside the browser), never r
 in a pasted diff, and does not store a key typed into the page.
 """
 
+import re
 import tempfile
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
@@ -27,12 +28,15 @@ from patchpilot.gentests import generate_tests
 from patchpilot.llm import LLMClient, LLMError
 from patchpilot.ratelimit import RateLimiter
 from patchpilot.review import review_diff
+from patchpilot.router import choose_model
 from patchpilot.store import RequestRecord, UsageStore
 
 STATIC = Path(__file__).parent / "static"
 SNIPPET = "snippet.py"  # the file name given to pasted Python code
 LOCAL_HOSTS = ["127.0.0.1", "localhost"]
 MAX_BODY_BYTES = 1_000_000
+# API keys are printable ASCII without spaces. Anything else cannot be sent in a header.
+KEY_PATTERN = re.compile(r"[!-~]+")
 # A hosted request has to finish while a visitor waits.
 HOSTED_LIMITS: dict[str, object] = {"timeout_seconds": 60.0, "max_retries": 1}
 HOSTED_PER_CLIENT_A_MINUTE = 10
@@ -214,6 +218,10 @@ def _run(
                 text = new_file_diff(SNIPPET, text)
             files = parse_diff(text.rstrip("\n") + "\n")
             result = action(files, llm, settings, workspace)
+            reason = "you chose this model"
+            if not job.model.strip():
+                changed = [file for file in files if file.hunks and not file.is_binary]
+                reason = choose_model(changed, settings).reason
     except DiffParseError as error:
         raise HTTPException(400, f"this is not a git diff: {error}") from error
     except LLMError as error:
@@ -223,7 +231,7 @@ def _run(
             message = message.replace(key, "***")
         # "error" means we refused to send (such as no key); anything else came back from the API.
         raise HTTPException(400 if error.status == "error" else 502, message) from error
-    return result | {"usage": _usage(records)}
+    return result | {"usage": _usage(records, reason)}
 
 
 def _settings(job: Job, hosted: bool) -> Settings:
@@ -233,6 +241,9 @@ def _settings(job: Job, hosted: bool) -> Settings:
     key = job.api_key.get_secret_value().strip()
     if hosted and not key:
         raise HTTPException(400, "enter your own API key")
+    # Rejected here, so a malformed key never reaches a library that might report it.
+    if key and not KEY_PATTERN.fullmatch(key):
+        raise HTTPException(400, "the API key contains spaces or characters that are not allowed")
     model = job.model.strip()
     overrides: dict[str, object] = {
         "provider": job.provider,
@@ -256,13 +267,15 @@ def _settings(job: Job, hosted: bool) -> Settings:
     return Settings(**overrides)
 
 
-def _usage(records: Sequence[RequestRecord]) -> dict[str, object] | None:
+def _usage(records: Sequence[RequestRecord], route: str) -> dict[str, object] | None:
     """Totals for the page. The cost is None if any part of it is unknown."""
     if not records:
         return None
     costs = [record.cost_usd for record in records if record.cost_usd is not None]
     return {
         "model": records[-1].model,
+        "route": route,  # why that model was used
+        "cached_input_tokens": sum(record.cache_read_tokens for record in records),
         "input_tokens": sum(
             r.input_tokens + r.cache_write_tokens + r.cache_read_tokens for r in records
         ),

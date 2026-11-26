@@ -3,7 +3,7 @@
 A Python CLI and GitHub Action that will review a git diff with the Claude API, generate pytest
 tests for the changed code, and track token cost per request.
 
-**Status:** milestone 1 of 8 (scaffold). No commands exist yet.
+**Status:** milestone 2 of 8 (diff parser). No commands exist yet.
 
 ## Setup
 

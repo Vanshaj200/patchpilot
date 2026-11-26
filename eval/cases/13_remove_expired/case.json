@@ -1,0 +1,9 @@
+{
+  "filename": "sessions.py",
+  "bug_type": "list changed while iterating",
+  "description": "Removing during iteration skips neighbouring items.",
+  "bug_lines": [
+    3,
+    5
+  ]
+}

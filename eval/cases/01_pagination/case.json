@@ -1,0 +1,9 @@
+{
+  "filename": "pagination.py",
+  "bug_type": "off-by-one",
+  "description": "The slice start is one item too late.",
+  "bug_lines": [
+    3,
+    4
+  ]
+}

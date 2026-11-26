@@ -1,0 +1,9 @@
+{
+  "filename": "weather.py",
+  "bug_type": "wrong initial value",
+  "description": "Starting from 0 is wrong when all values are negative.",
+  "bug_lines": [
+    3,
+    7
+  ]
+}

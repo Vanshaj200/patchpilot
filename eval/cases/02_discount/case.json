@@ -1,0 +1,8 @@
+{
+  "filename": "pricing.py",
+  "bug_type": "wrong operator",
+  "description": "The discount is added instead of subtracted.",
+  "bug_lines": [
+    4
+  ]
+}

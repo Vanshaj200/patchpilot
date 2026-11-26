@@ -1,0 +1,8 @@
+{
+  "filename": "factory.py",
+  "bug_type": "late-binding closure",
+  "description": "Every function uses the last value of the loop variable.",
+  "bug_lines": [
+    6
+  ]
+}

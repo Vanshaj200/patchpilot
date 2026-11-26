@@ -1,0 +1,10 @@
+{
+  "filename": "settings_reader.py",
+  "bug_type": "swallowed error",
+  "description": "Invalid input silently becomes port 0.",
+  "bug_lines": [
+    5,
+    6,
+    7
+  ]
+}

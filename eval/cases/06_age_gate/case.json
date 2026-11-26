@@ -1,0 +1,8 @@
+{
+  "filename": "eligibility.py",
+  "bug_type": "wrong comparison",
+  "description": "Uses > where >= is required.",
+  "bug_lines": [
+    6
+  ]
+}

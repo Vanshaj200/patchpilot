@@ -1,0 +1,8 @@
+{
+  "filename": "metrics.py",
+  "bug_type": "unhandled empty input",
+  "description": "Divides by zero when there are no results.",
+  "bug_lines": [
+    3
+  ]
+}

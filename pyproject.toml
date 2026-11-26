@@ -33,6 +33,8 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
+# The eval cases contain bugs on purpose.
+extend-exclude = ["eval/cases"]
 
 [tool.ruff.lint]
 select = [

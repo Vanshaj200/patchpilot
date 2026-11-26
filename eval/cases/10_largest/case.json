@@ -1,0 +1,10 @@
+{
+  "filename": "selection.py",
+  "bug_type": "missing return",
+  "description": "One branch falls through and returns None.",
+  "bug_lines": [
+    3,
+    5,
+    6
+  ]
+}

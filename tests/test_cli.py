@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 from patchpilot import cli
 from patchpilot.config import Settings
+from patchpilot.evaluation import run_evaluation
 from patchpilot.llm import LLMClient, Recorder
 
 runner = CliRunner()
@@ -230,6 +231,51 @@ def test_run_reports_a_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
 
     assert result.exit_code == 1
     assert "timed out after 2 s" in result.stderr
+
+
+def make_case(directory: Path) -> str:
+    folder = directory / "cases" / "01_demo"
+    folder.mkdir(parents=True)
+    info = {"filename": "calc.py", "bug_type": "demo", "bug_lines": [2]}
+    (folder / "case.json").write_text(json.dumps(info))
+    (folder / "good.py").write_text("def one():\n    return 1\n")
+    (folder / "buggy.py").write_text("def one():\n    return 2\n")
+    return str(directory / "cases")
+
+
+def test_eval_asks_before_spending(fake_cli: FakeAPI, tmp_path: Path) -> None:
+    result = runner.invoke(cli.app, ["eval", "--cases", make_case(tmp_path)], input="n\n")
+
+    assert result.exit_code == 1
+    assert "up to 4 paid API requests" in result.stdout
+    assert fake_cli.requests == []
+
+
+def test_eval_writes_results_and_readme(
+    fake_cli: FakeAPI, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def run_with_fake(*args: object, **kwargs: object) -> object:
+        return run_evaluation(*args, **kwargs, http_client=fake_cli.http_client())
+
+    monkeypatch.setattr(cli, "run_evaluation", run_with_fake)
+    readme = tmp_path / "README.md"
+    readme.write_text("<!-- eval:start -->\n<!-- eval:end -->\n")
+    arguments = ["eval", "--cases", make_case(tmp_path), "--no-tests", "--yes"]
+
+    result = runner.invoke(cli.app, [*arguments, "--readme", str(readme)])
+
+    assert result.exit_code == 0
+    assert "| baseline | 1 |" in readme.read_text()
+    assert len(list((tmp_path / "eval" / "results").iterdir())) == 2
+
+
+def test_eval_without_cases(tmp_path: Path) -> None:
+    (tmp_path / "empty").mkdir()
+
+    result = runner.invoke(cli.app, ["eval", "--cases", "empty", "--yes"])
+
+    assert result.exit_code == 1
+    assert "no cases found" in result.stderr
 
 
 def test_missing_diff_file() -> None:

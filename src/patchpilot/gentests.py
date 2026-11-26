@@ -93,11 +93,18 @@ def find_target(changed: ChangedFile, source: str) -> TestTarget | None:
             methods = [child for child in node.body if isinstance(child, _Function)]
             touched = [method for method in methods if _contains_change(method, positions)]
             if touched:
-                # The constructor shows the model how to build the object.
-                shown = [m for m in methods if m.name == "__init__" or m in touched]
-                header = "\n".join(lines[node.lineno - 1 : node.body[0].lineno - 1])
-                header = header or f"class {node.name}:"
-                snippets.append("\n".join([header, *(_source_of(m, lines) for m in shown)]))
+                # Fields and the constructor show the model how to build the object.
+                shown = [
+                    member
+                    for member in node.body
+                    if isinstance(member, ast.Assign | ast.AnnAssign)
+                    or member in touched
+                    or (isinstance(member, _Function) and member.name == "__init__")
+                ]
+                # Decorators such as @dataclass and the "class" line come before the body.
+                header = lines[_first_line(node) - 1 : _first_line(node.body[0]) - 1]
+                header = header or [f"class {node.name}:"]
+                snippets.append("\n".join([*header, *(_source_of(m, lines) for m in shown)]))
                 selected += shown
     if not snippets:
         return None

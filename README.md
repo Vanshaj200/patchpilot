@@ -47,7 +47,8 @@ flowchart LR
 | `cost.py`, `store.py` | Price calculation and the SQLite request log |
 | `runner.py` | Runs a test file on a temporary copy of the code and judges the results |
 | `evaluation.py` | The seeded-bug evaluation |
-| `web.py`, `static/` | The local web page and its in-browser test runner |
+| `web.py`, `static/` | The web page and its in-browser test runner |
+| `ratelimit.py` | Request limits for the hosted page |
 | `cli.py`, `config.py` | Commands and settings |
 
 ## Install
@@ -157,8 +158,40 @@ app or send data elsewhere. A run is stopped after 30 seconds. The first run nee
 connection to download Python from cdn.jsdelivr.net. Programs that need processes, threads,
 sockets or packages other than pytest will not work there.
 
-It is a local tool, not a hosted service: it accepts connections from your computer only and has
-no accounts or login. Putting it on the internet would need those, plus HTTPS and rate limits.
+`patchpilot web` is for your computer only. To put the page on the internet, use hosted mode
+below.
+
+### Deploy to Render
+
+[render.yaml](render.yaml) and [Dockerfile.web](Dockerfile.web) run `patchpilot serve`, the hosted
+mode, on Render's free plan.
+
+| | `patchpilot web` (local) | `patchpilot serve` (hosted) |
+|---|---|---|
+| Who can connect | Your computer | Anyone |
+| API keys | Typed, or saved in `.env` | Typed by each visitor only |
+| Local Ollama | Available | Removed |
+| Usage log | Written to disk | Nothing stored |
+| Rate limit | None | 10 requests a minute per visitor, 60 in total |
+| Model request limits | Your settings | 60 s timeout, 1 retry |
+
+1. Sign in at [render.com](https://render.com).
+2. Choose **New > Blueprint** and connect this GitHub repository.
+3. Pick the `main` branch, check that the plan shown is free, and deploy.
+
+The address will end in `.onrender.com`. The region in `render.yaml` is Singapore; change it
+before the first deploy if another is closer, because it cannot be changed afterwards. Later
+commits to `main` deploy automatically once CI passes.
+
+Things to know:
+
+- A free service [sleeps after 15 idle minutes](https://render.com/docs/free) and takes about a
+  minute to wake.
+- Visitors' keys and code pass through your server. The app does not store them, and the page says
+  so, but you are responsible for the server.
+- There are no accounts. The rate limit is held in memory and reads the visitor's address from a
+  header that can be faked; the limit on all requests still applies then, so one abusive visitor
+  can use it up.
 
 ### Caching and routing
 
@@ -244,8 +277,9 @@ this text with the measured table.
   response cache stores model replies, which can quote code or contain generated tests.
 - The diff is treated as untrusted: paths outside the repository are never read, and prompts tell
   the model to ignore instructions inside code. That instruction is not a guarantee.
-- The web page refuses other host names and requests another website could send, so other sites
-  cannot use your saved keys. Other programs and users on the same computer still can.
+- The local web page refuses other host names and requests another website could send, so other
+  sites cannot use your saved keys. Other programs and users on the same computer still can.
+  The hosted page never uses saved keys.
 - Each provider's address is fixed in the code, so an environment variable cannot redirect a key.
 - **The test runner is not a sandbox.** Generated tests run with your user's permissions and can
   use the network and read files. Read them first, or run them in a container.
@@ -254,7 +288,8 @@ this text with the measured table.
 
 - No benchmark results yet, only a two-case trial with Groq. The other providers have not returned
   a real reply, and the GitHub Action has not been exercised with a key.
-- The web page is not in the Docker image, and its model list holds only each provider's defaults.
+- `Dockerfile` is for the command line; the web page uses `Dockerfile.web`. The page's model list
+  holds only each provider's defaults.
 - Outside Claude, nothing forces the reply to match the expected structure, so some requests may
   fail validation. The prompts were written with Claude in mind and are not tuned for other models.
 - `ollama-local` does not work from inside the Docker container, which cannot reach the host's

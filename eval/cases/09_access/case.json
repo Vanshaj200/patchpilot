@@ -1,0 +1,8 @@
+{
+  "filename": "permissions.py",
+  "bug_type": "wrong boolean logic",
+  "description": "Uses 'or' where both conditions are required.",
+  "bug_lines": [
+    3
+  ]
+}

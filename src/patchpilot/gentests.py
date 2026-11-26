@@ -84,9 +84,11 @@ def find_target(changed: ChangedFile, source: str) -> TestTarget | None:
     lines = source.replace("\r\n", "\n").split("\n")
     positions = _changed_positions(changed)
     snippets: list[str] = []
+    selected: list[ast.stmt] = []
     for node in tree.body:
         if isinstance(node, _Function) and _contains_change(node, positions):
             snippets.append(_source_of(node, lines))
+            selected.append(node)
         elif isinstance(node, ast.ClassDef):
             methods = [child for child in node.body if isinstance(child, _Function)]
             touched = [method for method in methods if _contains_change(method, positions)]
@@ -96,15 +98,12 @@ def find_target(changed: ChangedFile, source: str) -> TestTarget | None:
                 header = "\n".join(lines[node.lineno - 1 : node.body[0].lineno - 1])
                 header = header or f"class {node.name}:"
                 snippets.append("\n".join([header, *(_source_of(m, lines) for m in shown)]))
+                selected += shown
     if not snippets:
         return None
 
-    imports = [
-        _source_of(node, lines)
-        for node in tree.body
-        if isinstance(node, ast.Import | ast.ImportFrom)
-    ]
-    return TestTarget(changed.path, module, tuple(imports), tuple(snippets))
+    context = [_source_of(node, lines) for node in _context_statements(tree, selected)]
+    return TestTarget(changed.path, module, tuple(context), tuple(snippets))
 
 
 def module_name(path: str) -> str | None:
@@ -137,6 +136,20 @@ def _changed_positions(changed: ChangedFile) -> set[int]:
                 if line.kind == LineKind.ADDED:
                     positions.add(previous)
     return positions
+
+
+def _context_statements(tree: ast.Module, selected: list[ast.stmt]) -> list[ast.stmt]:
+    """Imports, and the module-level values that the selected functions mention."""
+    used = {part.id for node in selected for part in ast.walk(node) if isinstance(part, ast.Name)}
+    context: list[ast.stmt] = []
+    for node in tree.body:
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            context.append(node)
+        elif isinstance(node, ast.Assign | ast.AnnAssign):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(target, ast.Name) and target.id in used for target in targets):
+                context.append(node)
+    return context
 
 
 def _first_line(node: ast.stmt) -> int:

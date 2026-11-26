@@ -1,0 +1,8 @@
+{
+  "filename": "validation.py",
+  "bug_type": "early return in loop",
+  "description": "Returns after checking only the first item.",
+  "bug_lines": [
+    6
+  ]
+}

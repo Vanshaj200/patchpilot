@@ -1,0 +1,9 @@
+{
+  "filename": "repository.py",
+  "bug_type": "SQL injection",
+  "description": "The query is built by concatenating user input.",
+  "bug_lines": [
+    6,
+    7
+  ]
+}

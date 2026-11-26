@@ -1,0 +1,8 @@
+{
+  "filename": "grades.py",
+  "bug_type": "integer division",
+  "description": "Floor division drops the fraction.",
+  "bug_lines": [
+    3
+  ]
+}

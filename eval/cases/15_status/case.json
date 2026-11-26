@@ -1,0 +1,8 @@
+{
+  "filename": "orders.py",
+  "bug_type": "identity instead of equality",
+  "description": "Compares strings with 'is'.",
+  "bug_lines": [
+    3
+  ]
+}

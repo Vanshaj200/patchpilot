@@ -91,7 +91,18 @@ def test_target_lists_imports_and_module() -> None:
 
     assert target is not None
     assert target.module == "pkg.shapes"
-    assert target.imports == ("import math", "from os import path")
+    assert target.context == ("import math", "from os import path")
+
+
+def test_context_includes_only_the_values_that_are_used() -> None:
+    source = (
+        "LIMIT = 3\nRATE: float = 0.5\nUNUSED = 1\n\n\ndef f(x):\n    return x * RATE < LIMIT\n"
+    )
+
+    target = find_target(change("+    return x * RATE < LIMIT", start=7), source)
+
+    assert target is not None
+    assert target.context == ("LIMIT = 3", "RATE: float = 0.5")
 
 
 def test_invalid_source_is_skipped(caplog: pytest.LogCaptureFixture) -> None:

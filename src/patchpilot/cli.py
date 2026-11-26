@@ -6,14 +6,24 @@ import sqlite3
 from collections import Counter
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
 import typer
-from pydantic import ValidationError
 
+from patchpilot import __version__
 from patchpilot.config import Settings
 from patchpilot.diff import ChangedFile, DiffParseError, parse_diff
+from patchpilot.evaluation import (
+    CONFIGURATIONS,
+    CaseScore,
+    load_cases,
+    render_markdown,
+    run_evaluation,
+    update_readme,
+    write_results,
+)
 from patchpilot.gentests import generate_tests
 from patchpilot.llm import LLMClient, LLMError
 from patchpilot.review import review_diff
@@ -166,12 +176,71 @@ def report() -> None:
     typer.echo(_format_report(rows) if rows else f"No requests logged in {settings.db_path}.")
 
 
+@app.command("eval")
+def evaluate(
+    cases: Annotated[
+        Path, typer.Option(exists=True, file_okay=False, help="Folder of seeded-bug cases.")
+    ] = Path("eval/cases"),
+    results: Annotated[Path, typer.Option(help="Folder for the result files.")] = Path(
+        "eval/results"
+    ),
+    limit: Annotated[int | None, typer.Option(min=1, help="Run only the first N cases.")] = None,
+    tests: Annotated[
+        bool, typer.Option("--tests/--no-tests", help="Also generate and run tests.")
+    ] = True,
+    readme: Annotated[
+        Path | None, typer.Option(help="README whose eval section should be replaced.")
+    ] = None,
+    yes: Annotated[bool, typer.Option("--yes", help="Do not ask before spending money.")] = False,
+) -> None:
+    """Compare baseline and optimised runs on the seeded bugs. Makes paid API requests."""
+    with _report_errors():
+        settings = _load_settings()
+        selected = load_cases(cases)[:limit]
+        if not selected:
+            raise OSError(f"no cases found in {cases}")
+        # Fail before the confirmation if no key is configured.
+        LLMClient(settings, on_request=lambda record: None)
+        requests = len(selected) * len(CONFIGURATIONS) * (2 if tests else 1)
+        if not yes:
+            typer.confirm(f"This sends up to {requests} paid API requests. Continue?", abort=True)
+
+        started = datetime.now(UTC)
+        details = {
+            "Run (UTC)": started.strftime("%Y-%m-%d %H:%M"),
+            "PatchPilot": __version__,
+            "large model": settings.model,
+            "small model": settings.small_model,
+            "prompt": settings.prompt_version,
+            "effort": settings.effort,
+        }
+        stem = started.strftime("%Y%m%d-%H%M%S")
+
+        def save(scores: list[CaseScore]) -> None:
+            # Saved after every case, so an interrupted run keeps what it paid for.
+            write_results(scores, details, results, stem)
+            latest = scores[-1]
+            caught = latest.caught_by_review or bool(latest.caught_by_tests)
+            typer.echo(
+                f"{latest.configuration} {latest.case}: {'caught' if caught else 'missed'}"
+                + "".join(f" [{error}]" for error in latest.errors),
+                err=True,
+            )
+
+        scores = run_evaluation(selected, settings, tests, on_score=save)
+        table = render_markdown(scores, details)
+        if readme is not None:
+            update_readme(readme, table)
+    typer.echo(table)
+    typer.echo(f"Saved {results / stem}.json and .md", err=True)
+
+
 @contextmanager
 def _report_errors() -> Iterator[None]:
     """Turn expected failures into a short message and exit code 1."""
     try:
         yield
-    except (DiffParseError, LLMError, ValidationError, sqlite3.Error, OSError) as error:
+    except (DiffParseError, LLMError, ValueError, sqlite3.Error, OSError) as error:
         typer.echo(f"Error: {error}", err=True)
         raise typer.Exit(code=1) from error
 

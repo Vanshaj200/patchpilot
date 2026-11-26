@@ -1,0 +1,9 @@
+{
+  "filename": "reporting.py",
+  "bug_type": "iterator used twice",
+  "description": "The generator is exhausted before the second use.",
+  "bug_lines": [
+    6,
+    7
+  ]
+}

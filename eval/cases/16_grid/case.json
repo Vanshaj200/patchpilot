@@ -1,0 +1,8 @@
+{
+  "filename": "board.py",
+  "bug_type": "shared inner list",
+  "description": "All rows are the same list object.",
+  "bug_lines": [
+    3
+  ]
+}

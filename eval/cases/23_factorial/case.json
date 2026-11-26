@@ -1,0 +1,8 @@
+{
+  "filename": "combinatorics.py",
+  "bug_type": "missing base case",
+  "description": "factorial(0) recurses forever.",
+  "bug_lines": [
+    3
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "filename": "frequency.py",
+  "bug_type": "missing dictionary default",
+  "description": "The first occurrence of a word raises KeyError.",
+  "bug_lines": [
+    5
+  ]
+}

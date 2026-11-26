@@ -1,0 +1,8 @@
+{
+  "filename": "history.py",
+  "bug_type": "slice boundary",
+  "description": "A count of zero returns the whole list.",
+  "bug_lines": [
+    3
+  ]
+}

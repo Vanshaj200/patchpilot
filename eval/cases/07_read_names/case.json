@@ -1,0 +1,9 @@
+{
+  "filename": "loader.py",
+  "bug_type": "unclosed resource",
+  "description": "The file is opened and never closed.",
+  "bug_lines": [
+    3,
+    4
+  ]
+}

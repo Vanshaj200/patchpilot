@@ -1,0 +1,9 @@
+{
+  "filename": "storage.py",
+  "bug_type": "path traversal",
+  "description": "A file name can escape the base folder.",
+  "bug_lines": [
+    6,
+    7
+  ]
+}

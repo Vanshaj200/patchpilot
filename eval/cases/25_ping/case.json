@@ -1,0 +1,8 @@
+{
+  "filename": "network.py",
+  "bug_type": "shell injection",
+  "description": "User input is interpolated into a shell command.",
+  "bug_lines": [
+    6
+  ]
+}

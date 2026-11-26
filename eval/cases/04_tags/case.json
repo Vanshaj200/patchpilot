@@ -1,0 +1,9 @@
+{
+  "filename": "tagging.py",
+  "bug_type": "mutable default argument",
+  "description": "The default list is shared between calls.",
+  "bug_lines": [
+    1,
+    3
+  ]
+}

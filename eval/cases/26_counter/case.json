@@ -1,0 +1,10 @@
+{
+  "filename": "counter.py",
+  "bug_type": "lock not released",
+  "description": "An exception leaves the lock held.",
+  "bug_lines": [
+    9,
+    10,
+    11
+  ]
+}

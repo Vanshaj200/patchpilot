@@ -1,0 +1,9 @@
+{
+  "filename": "accounts.py",
+  "bug_type": "missing None check",
+  "description": "A missing user is not handled.",
+  "bug_lines": [
+    3,
+    4
+  ]
+}

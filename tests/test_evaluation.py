@@ -8,12 +8,11 @@ import pytest
 from conftest import FakeAPI, reply
 
 from patchpilot.config import Settings
-from patchpilot.diff import ChangeType, parse_diff
+from patchpilot.diff import ChangeType, new_file_diff, parse_diff
 from patchpilot.evaluation import (
     Case,
     CaseScore,
     evaluate_case,
-    new_file_diff,
     render_markdown,
     run_evaluation,
     update_readme,

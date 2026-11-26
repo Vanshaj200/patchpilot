@@ -4,8 +4,8 @@ A Python CLI and GitHub Action that reviews a git diff with the Claude API (or N
 DeepSeek or Ollama), generates pytest tests for the changed functions, runs them, and records the
 tokens and cost of every request.
 
-**Status:** the code is complete and tested against mocked APIs. It has not yet been run against
-a real model API, so there are no benchmark results.
+**Status:** the code is complete and tested against mocked APIs. A two-case trial has run against
+the Groq API; the full evaluation has not been run, so there are no benchmark results.
 
 ## Architecture
 
@@ -26,6 +26,9 @@ flowchart LR
     llm --> comments[review comments]
     gentests --> file[test file] --> runner[runner.py<br/>temporary copy, timeout]
     runner --> verdicts[pass, fail, bad test]
+    page[web page] --> web[web.py]
+    web --> review
+    web --> gentests
     evaluation[evaluation.py] -.-> review
     evaluation -.-> gentests
     evaluation -.-> runner
@@ -44,6 +47,7 @@ flowchart LR
 | `cost.py`, `store.py` | Price calculation and the SQLite request log |
 | `runner.py` | Runs a test file on a temporary copy of the code and judges the results |
 | `evaluation.py` | The seeded-bug evaluation |
+| `web.py`, `static/` | The local web page and its in-browser test runner |
 | `cli.py`, `config.py` | Commands and settings |
 
 ## Install
@@ -122,6 +126,39 @@ patchpilot report                             # tokens and cost by feature and m
 correct, `patchpilot run tests.py --good-repo PATH` marks tests that also fail there as
 `bad test`. A test that passes there but fails on your change is marked `possible bug`. This only
 helps for functions that exist in both versions.
+
+### Web page
+
+For people who prefer a browser: choose a provider and model, enter your own API key, and paste
+Python code or a diff.
+
+```sh
+python -m pip install -e ".[web]"
+```
+
+```sh
+patchpilot web
+```
+
+Then open <http://127.0.0.1:8000>.
+
+- **Model:** leave it empty to let the routing rules choose, or type any model name.
+- **API key:** a typed key is used for that request and not stored. If the field is empty, a key
+  saved in your environment or `.env` is used.
+- **Actions:** review code or a diff; generate tests for pasted Python code; run tests.
+- **Run tests:** write or paste pytest tests (generated ones appear in the box) and run them
+  against the pasted code, which they import as `snippet`. No API key is needed.
+- **Privacy:** only token counts and costs are logged. The reply cache is off for web requests.
+
+Tests run inside the browser on [Pyodide](https://pyodide.org), Python compiled to WebAssembly,
+not on your computer's Python. The worker that runs them cannot read your files, and its content
+policy lets it connect only to the Pyodide download address, so code under test cannot call this
+app or send data elsewhere. A run is stopped after 30 seconds. The first run needs an internet
+connection to download Python from cdn.jsdelivr.net. Programs that need processes, threads,
+sockets or packages other than pytest will not work there.
+
+It is a local tool, not a hosted service: it accepts connections from your computer only and has
+no accounts or login. Putting it on the internet would need those, plus HTTPS and rate limits.
 
 ### Caching and routing
 
@@ -207,12 +244,17 @@ this text with the measured table.
   response cache stores model replies, which can quote code or contain generated tests.
 - The diff is treated as untrusted: paths outside the repository are never read, and prompts tell
   the model to ignore instructions inside code. That instruction is not a guarantee.
+- The web page refuses other host names and requests another website could send, so other sites
+  cannot use your saved keys. Other programs and users on the same computer still can.
+- Each provider's address is fixed in the code, so an environment variable cannot redirect a key.
 - **The test runner is not a sandbox.** Generated tests run with your user's permissions and can
   use the network and read files. Read them first, or run them in a container.
 
 ## Limitations
 
-- No real-API results yet, and the GitHub Action has not been exercised with a key.
+- No benchmark results yet, only a two-case trial with Groq. The other providers have not returned
+  a real reply, and the GitHub Action has not been exercised with a key.
+- The web page is not in the Docker image, and its model list holds only each provider's defaults.
 - Outside Claude, nothing forces the reply to match the expected structure, so some requests may
   fail validation. The prompts were written with Claude in mind and are not tuned for other models.
 - `ollama-local` does not work from inside the Docker container, which cannot reach the host's

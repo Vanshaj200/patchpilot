@@ -26,6 +26,21 @@ def test_returns_validated_reply(api: FakeAPI) -> None:
     assert result.comments[0].line == 2
 
 
+def test_environment_cannot_redirect_or_replace_the_key(
+    api: FakeAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://somewhere-else.example")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "some-other-token")
+
+    ask(api.llm())
+
+    request = api.requests[0]
+    assert request.url.host == "api.anthropic.com"
+    sent = str(dict(request.headers))
+    assert "test-key" in sent
+    assert "some-other-token" not in sent
+
+
 def test_request_sets_limits_and_json_schema(api: FakeAPI) -> None:
     ask(api.llm(Settings(ANTHROPIC_API_KEY="k", max_tokens=123, effort="low")))
 

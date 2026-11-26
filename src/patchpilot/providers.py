@@ -27,6 +27,7 @@ _FALLBACK_MODELS = frozenset(
     }
 )
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
+ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 _THINKING = re.compile(r"(?s)<think>.*?</think>")
 
 
@@ -80,6 +81,8 @@ class AnthropicBackend:
         # backoff. A second retry loop here would multiply the number of attempts.
         self._client = anthropic.Anthropic(
             api_key=_require(settings.anthropic_api_key, "ANTHROPIC_API_KEY"),
+            # Fixed, so an ANTHROPIC_BASE_URL variable cannot send the key somewhere else.
+            base_url=ANTHROPIC_BASE_URL,
             timeout=settings.timeout_seconds,
             max_retries=settings.max_retries,
             http_client=http_client,

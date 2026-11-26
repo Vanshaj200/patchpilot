@@ -2,6 +2,8 @@
 
 import json
 import logging
+import sqlite3
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
 
@@ -12,6 +14,7 @@ from patchpilot.config import Settings
 from patchpilot.diff import ChangedFile, DiffParseError, parse_diff
 from patchpilot.llm import LLMClient, LLMError
 from patchpilot.review import review_diff
+from patchpilot.store import SummaryRow, UsageStore
 
 DEBUG_LOG = Path("patchpilot-debug.log")
 
@@ -21,6 +24,10 @@ app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 DiffFile = Annotated[
     Path,
     typer.Argument(exists=True, dir_okay=False, help="A file holding the output of `git diff`."),
+]
+RepoOption = Annotated[
+    Path,
+    typer.Option(exists=True, file_okay=False, help="Checkout that already contains the change."),
 ]
 DebugOption = Annotated[
     bool,
@@ -36,6 +43,7 @@ def main() -> None:
 @app.command()
 def review(
     diff_file: DiffFile,
+    repo: RepoOption = Path("."),
     prompt_version: Annotated[str | None, typer.Option(help="Review prompt: v1 or v2.")] = None,
     debug: DebugOption = False,
 ) -> None:
@@ -45,12 +53,52 @@ def review(
     try:
         settings = _load_settings(prompt_version=prompt_version)
         files = _read_diff(diff_file)
-        result = review_diff(files, LLMClient(settings), settings.prompt_version)
-    except (DiffParseError, LLMError, ValidationError) as error:
+        llm = LLMClient(settings, on_request=UsageStore(settings.db_path).add)
+        result = review_diff(files, llm, settings.prompt_version, repo)
+    except (DiffParseError, LLMError, ValidationError, sqlite3.Error) as error:
         typer.echo(f"Error: {error}", err=True)
         raise typer.Exit(code=1) from error
     # json.dumps escapes non-ASCII text, so output is safe on any console encoding.
     typer.echo(json.dumps(result.model_dump(mode="json"), indent=2))
+
+
+@app.command()
+def report() -> None:
+    """Print total tokens and cost by feature and model."""
+    try:
+        settings = _load_settings()
+        rows = UsageStore(settings.db_path).summary()
+    except (ValidationError, sqlite3.Error) as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(_format_report(rows) if rows else f"No requests logged in {settings.db_path}.")
+
+
+def _format_report(rows: Sequence[SummaryRow]) -> str:
+    header = ["Feature", "Model", "Requests", "Input", "Output", "Cache write", "Cache read"]
+    table = [[*header, "Cost (USD)"]]
+    for row in rows:
+        counts = [row.requests, row.input_tokens, row.output_tokens]
+        counts += [row.cache_write_tokens, row.cache_read_tokens]
+        table.append([row.feature, row.model, *map(str, counts), f"{row.cost_usd:.6f}"])
+    totals = [sum(int(line[column]) for line in table[1:]) for column in range(2, len(header))]
+    total_cost = sum(row.cost_usd for row in rows)
+    table.append(["Total", "", *map(str, totals), f"{total_cost:.6f}"])
+
+    widths = [max(len(line[column]) for line in table) for column in range(len(table[0]))]
+    lines = [
+        "  ".join(
+            cell.ljust(width) if column < 2 else cell.rjust(width)
+            for column, (cell, width) in enumerate(zip(line, widths, strict=True))
+        )
+        for line in table
+    ]
+    saved = sum(row.tokens_saved for row in rows)
+    lines.append(f"\nEstimated input tokens saved by sending only hunks: {saved}")
+    unknown = sum(row.unknown_cost_requests for row in rows)
+    if unknown:
+        lines.append(f"{unknown} requests have no known cost and are not in the cost figures.")
+    return "\n".join(lines)
 
 
 def _load_settings(**overrides: str | None) -> Settings:

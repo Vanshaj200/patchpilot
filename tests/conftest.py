@@ -11,6 +11,7 @@ import pytest
 
 from patchpilot.config import Settings
 from patchpilot.llm import LLMClient
+from patchpilot.store import RequestRecord
 
 DIFF = """\
 diff --git a/calc.py b/calc.py
@@ -67,6 +68,7 @@ class FakeAPI:
     def __init__(self) -> None:
         self.responses: list[httpx2.Response | Exception] = [reply()]
         self.requests: list[httpx2.Request] = []
+        self.records: list[RequestRecord] = []
 
     def handle(self, request: httpx2.Request) -> httpx2.Response:
         self.requests.append(request)
@@ -81,7 +83,7 @@ class FakeAPI:
 
     def llm(self, settings: Settings | None = None) -> LLMClient:
         settings = settings or Settings(ANTHROPIC_API_KEY="test-key")
-        return LLMClient(settings, http_client=self.http_client())
+        return LLMClient(settings, on_request=self.records.append, http_client=self.http_client())
 
     def sent_body(self, index: int = 0) -> dict[str, object]:
         return json.loads(self.requests[index].content)

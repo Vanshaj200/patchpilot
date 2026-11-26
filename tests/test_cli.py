@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 from patchpilot import cli
 from patchpilot.config import Settings
-from patchpilot.llm import LLMClient
+from patchpilot.llm import LLMClient, Recorder
 
 runner = CliRunner()
 
@@ -17,8 +17,8 @@ def fake_cli(api: FakeAPI, monkeypatch: pytest.MonkeyPatch) -> FakeAPI:
     """Make the CLI build clients that talk to the fake API."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
-    def build(settings: Settings) -> LLMClient:
-        return api.llm(settings)
+    def build(settings: Settings, on_request: Recorder) -> LLMClient:
+        return LLMClient(settings, on_request, http_client=api.http_client())
 
     monkeypatch.setattr(cli, "LLMClient", build)
     return api
@@ -84,6 +84,46 @@ def test_missing_api_key_is_explained(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "ANTHROPIC_API_KEY is not set" in result.stderr
+
+
+def test_report_totals_logged_requests(fake_cli: FakeAPI, tmp_path: Path) -> None:
+    diff = write_diff(tmp_path)
+    runner.invoke(cli.app, ["review", diff])
+    runner.invoke(cli.app, ["review", diff])
+
+    result = runner.invoke(cli.app, ["report"])
+
+    assert result.exit_code == 0
+    total = next(line for line in result.stdout.splitlines() if line.startswith("Total"))
+    # Two requests of 100 input and 20 output tokens at $4 and $20 per million.
+    assert total.split() == ["Total", "2", "200", "40", "0", "0", "0.001600"]
+    assert "no known cost" not in result.stdout
+
+
+def test_report_mentions_unknown_costs(fake_cli: FakeAPI, tmp_path: Path) -> None:
+    fake_cli.responses = [reply(model="claude-unreleased")]
+    runner.invoke(cli.app, ["review", write_diff(tmp_path)])
+
+    result = runner.invoke(cli.app, ["report"])
+
+    assert "1 requests have no known cost" in result.stdout
+
+
+def test_report_without_data() -> None:
+    result = runner.invoke(cli.app, ["report"])
+
+    assert result.exit_code == 0
+    assert "No requests logged" in result.stdout
+
+
+def test_report_with_a_corrupt_database(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    (tmp_path / "bad.db").write_text("this is not a database, " * 20)
+    monkeypatch.setenv("PATCHPILOT_DB_PATH", "bad.db")
+
+    result = runner.invoke(cli.app, ["report"])
+
+    assert result.exit_code == 1
+    assert "Error:" in result.stderr
 
 
 def test_missing_diff_file() -> None:

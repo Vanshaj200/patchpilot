@@ -1,0 +1,8 @@
+diff --git a/query.sql b/query.sql
+index 260114b..e1433e1 100644
+--- a/query.sql
++++ b/query.sql
+@@ -1,2 +1,2 @@
+ SELECT 1;
+--- note
++++ counter

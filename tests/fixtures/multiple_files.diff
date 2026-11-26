@@ -1,0 +1,21 @@
+diff --git a/a.py b/a.py
+index 1337a53..e7cabca 100644
+--- a/a.py
++++ b/a.py
+@@ -1 +1 @@
+-a = 1
++a = 2
+diff --git a/b.py b/b.py
+deleted file mode 100644
+index 6e5be25..0000000
+--- a/b.py
++++ /dev/null
+@@ -1 +0,0 @@
+-b = 1
+diff --git a/c.py b/c.py
+new file mode 100644
+index 0000000..bce5824
+--- /dev/null
++++ b/c.py
+@@ -0,0 +1 @@
++c = 1

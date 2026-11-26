@@ -117,6 +117,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .severity.passed { color: var(--success); }
 .severity.skipped { color: var(--muted); }
 
+.notice {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
 .panel { margin-top: 2rem; }
 .panel h2 { margin: 0; font-size: 1.25rem; }
 .panel p { margin: 0; }

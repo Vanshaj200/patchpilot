@@ -6,6 +6,7 @@ const byId = (id) => document.getElementById(id);
 const LOAD_LIMIT_SECONDS = 120; // downloading and starting Python
 const RUN_LIMIT_SECONDS = 30; // running the tests
 let providers = [];
+let hosted = false; // true on a shared server
 let waiting = false; // a model request is in progress
 let testing = false; // a test run is in progress
 
@@ -56,6 +57,7 @@ function showProvider() {
     help = provider.has_saved_key
       ? "A key is saved on this computer. Leave this empty to use it, or type another."
       : "Enter your key. It is used for this request and not saved.";
+    if (hosted) help = "Enter your own key. It is sent to this server and not stored.";
   }
   byId("key-help").textContent = help;
 }
@@ -238,11 +240,13 @@ async function start() {
     radio.addEventListener("change", () => updateButtons());
   }
   try {
+    hosted = (await callServer("/api/config")).hosted;
     providers = await callServer("/api/providers");
   } catch (error) {
     showStatus(`Could not load the providers: ${error.message}`, true);
     return;
   }
+  byId("privacy").hidden = !hosted;
   byId("provider").replaceChildren(
     ...providers.map((provider) => element("option", provider.name)),
   );

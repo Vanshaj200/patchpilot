@@ -1,8 +1,11 @@
-"""A local web page for reviewing code with a model and API key of your choice.
+"""A web page for reviewing code with a model and API key of your choice.
 
-It accepts connections from this computer only. The server never runs code (tests run inside the
-browser) and never reads files named in a pasted diff. A key typed into the page is used for that
-request and is not stored.
+It has two modes. Local (the default) accepts connections from this computer only and may use
+keys saved on it. Hosted is for a shared server: visitors must type their own key, nothing is
+stored, and requests are rate limited.
+
+In both modes the server never runs code (tests run inside the browser), never reads files named
+in a pasted diff, and does not store a key typed into the page.
 """
 
 import tempfile
@@ -22,12 +25,18 @@ from patchpilot.config import PROVIDERS, Settings
 from patchpilot.diff import ChangedFile, DiffParseError, new_file_diff, parse_diff
 from patchpilot.gentests import generate_tests
 from patchpilot.llm import LLMClient, LLMError
+from patchpilot.ratelimit import RateLimiter
 from patchpilot.review import review_diff
 from patchpilot.store import RequestRecord, UsageStore
 
 STATIC = Path(__file__).parent / "static"
 SNIPPET = "snippet.py"  # the file name given to pasted Python code
 LOCAL_HOSTS = ["127.0.0.1", "localhost"]
+MAX_BODY_BYTES = 1_000_000
+# A hosted request has to finish while a visitor waits.
+HOSTED_LIMITS: dict[str, object] = {"timeout_seconds": 60.0, "max_retries": 1}
+HOSTED_PER_CLIENT_A_MINUTE = 10
+HOSTED_TOTAL_A_MINUTE = 60
 # The page may load only its own files, and no other site may put it in a frame.
 CONTENT_POLICY = "default-src 'self'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'"
 # The test worker runs untrusted code. It may load and contact the Pyodide download address and
@@ -52,26 +61,34 @@ class Job(BaseModel):
     text: str = Field(min_length=1, max_length=200_000)
 
 
-def create_app(http_client: httpx2.Client | None = None) -> FastAPI:
+def create_app(
+    http_client: httpx2.Client | None = None,
+    hosted: bool = False,
+    limiter: RateLimiter | None = None,
+) -> FastAPI:
     """Build the web app. Tests pass an `http_client` that fakes the model APIs."""
     app = FastAPI(title="PatchPilot", docs_url=None, redoc_url=None, openapi_url=None)
-    # Refusing other host names stops a website from reaching this server through a domain
-    # name that it points at 127.0.0.1 ("DNS rebinding").
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOCAL_HOSTS)
+    if not hosted:
+        # Refusing other host names stops a website from reaching this server through a
+        # domain name that it points at 127.0.0.1 ("DNS rebinding"). A hosted server holds
+        # no keys to protect, and is reached through its public name.
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOCAL_HOSTS)
+    elif limiter is None:
+        limiter = RateLimiter(HOSTED_PER_CLIENT_A_MINUTE, HOSTED_TOTAL_A_MINUTE)
 
     @app.middleware("http")
     async def protect(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        # Any website can make your browser send a form or plain text here. Sending JSON
-        # needs a permission this server never gives, so other sites cannot spend your key.
-        content_type = request.headers.get("content-type", "").split(";")[0]
-        if request.method == "POST" and content_type != "application/json":
-            return JSONResponse({"detail": "send JSON"}, status_code=415)
-        response = await call_next(request)
+        response = _refusal(request, limiter) or await call_next(request)
         is_worker = request.url.path == WORKER_PATH
         response.headers["Content-Security-Policy"] = WORKER_POLICY if is_worker else CONTENT_POLICY
         response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        if hosted:
+            # Tells browsers to use HTTPS only, so a key is never sent unencrypted.
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
         return response
 
     @app.exception_handler(RequestValidationError)
@@ -89,12 +106,25 @@ def create_app(http_client: httpx2.Client | None = None) -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
+    @app.get("/healthz")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/api/config")
+    def config() -> dict[str, bool]:
+        return {"hosted": hosted}
+
     @app.get("/api/providers")
     def providers() -> list[dict[str, object]]:
-        settings = Settings()
+        # A hosted server never looks for saved keys.
+        settings = None if hosted else Settings()
         listed: list[dict[str, object]] = []
         for name, info in PROVIDERS.items():
-            saved = getattr(settings, info.key_field) if info.key_field else None
+            if hosted and info.key_field is None:
+                continue  # a local model would be on the server, not the visitor's computer
+            saved = None
+            if settings is not None and info.key_field:
+                saved = getattr(settings, info.key_field)
             listed.append(
                 {
                     "name": name,
@@ -115,7 +145,7 @@ def create_app(http_client: httpx2.Client | None = None) -> FastAPI:
             result = review_diff(files, llm, settings, workspace)
             return result.model_dump(mode="json")
 
-        return _run(job, action, http_client)
+        return _run(job, action, http_client, hosted)
 
     @app.post("/api/gentests")
     def gentests(job: Job) -> dict[str, object]:
@@ -128,19 +158,50 @@ def create_app(http_client: httpx2.Client | None = None) -> FastAPI:
         ) -> dict[str, object]:
             return {"test_code": generate_tests(files, workspace, llm, settings)}
 
-        return _run(job, action, http_client)
+        return _run(job, action, http_client, hosted)
 
     return app
 
 
-def _run(job: Job, action: Action, http_client: httpx2.Client | None) -> dict[str, object]:
-    settings = _settings(job)
+def _refusal(request: Request, limiter: RateLimiter | None) -> Response | None:
+    """Check a request before it is read. Return the reply that rejects it, or None."""
+    if request.method != "POST":
+        return None
+    # Any website can make your browser send a form or plain text here. Sending JSON needs a
+    # permission this server never gives, so other sites cannot post on your behalf.
+    if request.headers.get("content-type", "").split(";")[0] != "application/json":
+        return JSONResponse({"detail": "send JSON"}, status_code=415)
+    length = request.headers.get("content-length", "")
+    if not length.isdigit() or int(length) > MAX_BODY_BYTES:
+        return JSONResponse({"detail": "the request is too large"}, status_code=413)
+    if limiter is not None and not limiter.allow(_client_address(request)):
+        return JSONResponse(
+            {"detail": "too many requests; wait a minute and try again"},
+            status_code=429,
+            headers={"Retry-After": "60"},
+        )
+    return None
+
+
+def _client_address(request: Request) -> str:
+    # Behind a host's proxy the visitor's address arrives in this header. A visitor can fake
+    # it, which is why there is also a limit on all requests together.
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    return forwarded or (request.client.host if request.client else "unknown")
+
+
+def _run(
+    job: Job, action: Action, http_client: httpx2.Client | None, hosted: bool
+) -> dict[str, object]:
+    settings = _settings(job, hosted)
     records: list[RequestRecord] = []
-    store = UsageStore(settings.db_path)
+    # A hosted server writes nothing about its visitors to disk.
+    store = None if hosted else UsageStore(settings.db_path)
 
     def record(entry: RequestRecord) -> None:
         records.append(entry)
-        store.add(entry)
+        if store is not None:
+            store.add(entry)
 
     try:
         llm = LLMClient(settings, on_request=record, http_client=http_client)
@@ -165,10 +226,13 @@ def _run(job: Job, action: Action, http_client: httpx2.Client | None) -> dict[st
     return result | {"usage": _usage(records)}
 
 
-def _settings(job: Job) -> Settings:
+def _settings(job: Job, hosted: bool) -> Settings:
     info = PROVIDERS.get(job.provider)
-    if info is None:
+    if info is None or (hosted and info.key_field is None):
         raise HTTPException(400, "unknown provider")
+    key = job.api_key.get_secret_value().strip()
+    if hosted and not key:
+        raise HTTPException(400, "enter your own API key")
     model = job.model.strip()
     overrides: dict[str, object] = {
         "provider": job.provider,
@@ -180,7 +244,13 @@ def _settings(job: Job) -> Settings:
     }
     if model:
         overrides["routing"] = False  # a chosen model is used for every change
-    key = job.api_key.get_secret_value().strip()
+    if hosted:
+        # The server's own keys and .env file must never pay for a visitor's request.
+        overrides |= {
+            other.key_field.upper(): "" for other in PROVIDERS.values() if other.key_field
+        }
+        # No request spacing: it exists for one account, and each visitor has their own.
+        overrides |= HOSTED_LIMITS | {"_env_file": None, "requests_per_minute": 0}
     if key and info.key_field:
         overrides[info.key_field.upper()] = key
     return Settings(**overrides)

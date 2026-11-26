@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "patchpilot"
 dynamic = ["version"]
 description = "Review a git diff with the Claude API and generate pytest tests for the changed code."
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 

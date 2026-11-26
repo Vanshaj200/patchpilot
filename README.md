@@ -7,6 +7,11 @@ tokens and cost of every request.
 **Status:** the code is complete and tested against mocked APIs. A two-case trial has run against
 the Groq API; the full evaluation has not been run, so there are no benchmark results.
 
+**Live demo** (bring your own API key):
+
+- <https://patchpilot-phi.vercel.app> (Vercel)
+- <https://patchpilot-luzi.onrender.com> (Render; the first visit after a quiet spell is slow)
+
 ## Architecture
 
 ```mermaid

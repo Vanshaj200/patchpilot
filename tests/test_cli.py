@@ -126,5 +126,77 @@ def test_report_with_a_corrupt_database(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert "Error:" in result.stderr
 
 
+def test_gentests_writes_the_file_without_running_it(fake_cli: FakeAPI, tmp_path: Path) -> None:
+    (tmp_path / "calc.py").write_text("def total(items):\n    return sum(items[1:])\n")
+    code = "def test_total():\n    raise SystemExit('must not run')\n"
+    fake_cli.responses = [reply({"test_code": code})]
+
+    result = runner.invoke(cli.app, ["gentests", write_diff(tmp_path), "--output", "out/t.py"])
+
+    assert result.exit_code == 0
+    assert (tmp_path / "out" / "t.py").read_text() == code
+    assert "patchpilot run" in result.stdout
+
+
+def test_gentests_without_changed_functions(fake_cli: FakeAPI, tmp_path: Path) -> None:
+    result = runner.invoke(cli.app, ["gentests", write_diff(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "nothing was written" in result.stdout
+    assert not (tmp_path / "patchpilot_tests.py").exists()
+
+
+def make_project(directory: Path, body: str) -> str:
+    directory.mkdir()
+    (directory / "calc.py").write_text(f"def total(items):\n    return {body}\n")
+    return str(directory)
+
+
+CALC_TESTS = """\
+from calc import total
+
+
+def test_sum():
+    assert total([1, 2]) == 3
+
+
+def test_wrong_expectation():
+    assert total([]) == 1
+"""
+
+
+def test_run_separates_bugs_from_bad_tests(tmp_path: Path) -> None:
+    (tmp_path / "t.py").write_text(CALC_TESTS)
+    buggy = make_project(tmp_path / "buggy", "sum(items[1:])")
+    good = make_project(tmp_path / "good", "sum(items)")
+
+    result = runner.invoke(cli.app, ["run", "t.py", "--repo", buggy, "--good-repo", good])
+
+    assert result.exit_code == 1
+    assert "possible bug  test_sum" in result.stdout
+    assert "bad test      test_wrong_expectation" in result.stdout
+
+
+def test_run_succeeds_when_only_bad_tests_fail(tmp_path: Path) -> None:
+    (tmp_path / "t.py").write_text(CALC_TESTS)
+    good = make_project(tmp_path / "good", "sum(items)")
+
+    result = runner.invoke(cli.app, ["run", "t.py", "--repo", good, "--good-repo", good])
+
+    assert result.exit_code == 0
+    assert "1 passed, 1 bad test" in result.stdout
+
+
+def test_run_reports_a_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PATCHPILOT_TEST_TIMEOUT_SECONDS", "2")
+    (tmp_path / "t.py").write_text("import time\n\ndef test_slow():\n    time.sleep(60)\n")
+    (tmp_path / "code").mkdir()
+
+    result = runner.invoke(cli.app, ["run", "t.py", "--repo", "code"])
+
+    assert result.exit_code == 1
+    assert "timed out after 2 s" in result.stderr
+
+
 def test_missing_diff_file() -> None:
     assert runner.invoke(cli.app, ["review", "absent.diff"]).exit_code == 2

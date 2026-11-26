@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     prompt_version: Literal["v1", "v2"] = "v2"
     # A cost guard: refuse to send an unexpectedly large prompt.
     max_prompt_chars: int = Field(default=200_000, gt=0)
+    # Time limit for one run of the generated tests.
+    test_timeout_seconds: float = Field(default=60.0, gt=0)
     db_path: Path = Path(".patchpilot/usage.db")
     # Override the whole table with JSON in PATCHPILOT_PRICES.
     prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(PRICES))

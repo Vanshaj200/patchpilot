@@ -7,6 +7,8 @@ const LOAD_LIMIT_SECONDS = 120; // downloading and starting Python
 const RUN_LIMIT_SECONDS = 30; // running the tests
 let providers = [];
 let hosted = false; // true on a shared server
+// Totals for this visit only. They live in the page and vanish when it is reloaded.
+const totals = { requests: 0, input: 0, output: 0, cost: 0, unknownCost: 0 };
 let waiting = false; // a model request is in progress
 let testing = false; // a test run is in progress
 
@@ -73,9 +75,26 @@ function updateButtons() {
 function usageLine(usage) {
   const cost = usage.cost_usd === null ? "unknown" : `$${usage.cost_usd.toFixed(6)}`;
   return (
-    `${usage.model} · ${usage.input_tokens} input and ${usage.output_tokens} output tokens` +
+    `${usage.model} (${usage.route}) · ${usage.input_tokens} input tokens, ` +
+    `${usage.cached_input_tokens} of them cached · ${usage.output_tokens} output tokens` +
     ` · ${usage.seconds} s · cost ${cost}`
   );
+}
+
+function addToTotals(usage) {
+  totals.requests += 1;
+  totals.input += usage.input_tokens;
+  totals.output += usage.output_tokens;
+  if (usage.cost_usd === null) totals.unknownCost += 1;
+  else totals.cost += usage.cost_usd;
+
+  // A sum that leaves requests out is never shown as if it were complete.
+  let cost = `$${totals.cost.toFixed(6)}`;
+  if (totals.unknownCost === totals.requests) cost = "unknown";
+  else if (totals.unknownCost > 0) cost = `at least ${cost}`;
+  byId("totals").textContent =
+    `This visit: ${totals.requests} requests · ${totals.input} input tokens · ` +
+    `${totals.output} output tokens · cost ${cost}`;
 }
 
 function showComments(data) {
@@ -127,7 +146,10 @@ async function run(path, render) {
       text: byId("text").value,
     });
     byId("results").replaceChildren(...render(data));
-    if (data.usage) byId("results").append(element("p", usageLine(data.usage), "help"));
+    if (data.usage) {
+      byId("results").append(element("p", usageLine(data.usage), "help"));
+      addToTotals(data.usage);
+    }
     showStatus(data.usage ? "Done." : "Nothing to send: there are no changed lines to check.");
   } catch (error) {
     showStatus(error.message, true);

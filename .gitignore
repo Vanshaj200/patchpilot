@@ -15,8 +15,9 @@ dist/
 .pytest_cache/
 .ruff_cache/
 
-# Local usage databases
+# Local usage databases and debug logs (debug logs contain source code)
 *.db
+*.log
 
 # Local assistant settings
 .claude/

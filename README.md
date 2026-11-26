@@ -1,8 +1,8 @@
 # PatchPilot
 
-A Python CLI and GitHub Action that reviews a git diff with the Claude API (or NVIDIA-hosted
-models), generates pytest tests for the changed functions, runs them, and records the tokens and
-cost of every request.
+A Python CLI and GitHub Action that reviews a git diff with the Claude API (or NVIDIA, Groq,
+DeepSeek or Ollama), generates pytest tests for the changed functions, runs them, and records the
+tokens and cost of every request.
 
 **Status:** the code is complete and tested against mocked APIs. It has not yet been run against
 a real model API, so there are no benchmark results.
@@ -21,7 +21,7 @@ flowchart LR
     llm <--> cache[(cache.py<br/>local replies)]
     llm --> providers[providers.py]
     providers <--> claude[Claude API]
-    providers <--> nvidia[NVIDIA API]
+    providers <--> other[NVIDIA, Groq, DeepSeek, Ollama]
     llm --> cost[cost.py] --> store[(store.py<br/>SQLite)] --> report[report]
     llm --> comments[review comments]
     gentests --> file[test file] --> runner[runner.py<br/>temporary copy, timeout]
@@ -38,7 +38,7 @@ flowchart LR
 | `gentests.py` | Finds changed functions with `ast` and asks for tests |
 | `prompts.py` | Versioned prompts (`v1`, `v2`) and the text form of a diff |
 | `llm.py` | One request: size limit, local cache, validated JSON, logging |
-| `providers.py` | The Claude and NVIDIA calls: timeout, up to 2 retries, `max_tokens` |
+| `providers.py` | The model API calls: timeout, up to 2 retries, reply token limit |
 | `router.py` | Rules that pick the small or large model |
 | `cache.py` | Local reply cache and prompt cache markers |
 | `cost.py`, `store.py` | Price calculation and the SQLite request log |
@@ -71,20 +71,35 @@ in. Requests are billed to that key.
 
 ## Providers
 
-Claude is the default. To use models hosted by NVIDIA, set `NVIDIA_API_KEY` and either set
-`PATCHPILOT_PROVIDER=nvidia` or add `--provider nvidia` to `review`, `gentests` or `eval`.
+Claude is the default. For another provider, set its key and either set
+`PATCHPILOT_PROVIDER=<name>` or add `--provider <name>` to `review`, `gentests` or `eval`.
 
-| | `anthropic` | `nvidia` |
-|---|---|---|
-| Large model | `claude-opus-5-5` | `nvidia/nemotron-3-ultra-550b-a55b` |
-| Small model | `claude-haiku-5-5` | `nvidia/nemotron-3.5-lightning-30b-a3b` |
-| JSON reply | Enforced by the API | Requested in the prompt, then validated |
-| Prompt caching, refusal fallback, effort | Yes | No |
-| Cost in reports | From the price table | Unknown unless you add prices |
+| Provider | Key variable | Large model | Small model | JSON reply |
+|---|---|---|---|---|
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-opus-5-5` | `claude-haiku-5-5` | Schema enforced by the API |
+| `nvidia` | `NVIDIA_API_KEY` | `nvidia/nemotron-3-ultra-550b-a55b` | `nvidia/nemotron-3.5-lightning-30b-a3b` | Asked for in the prompt |
+| `groq` | `GROQ_API_KEY` | `openai/gpt-oss-120b` | `openai/gpt-oss-20b` | JSON mode |
+| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-v4-pro` | `deepseek-flash` | JSON mode |
+| `ollama` (cloud) | `OLLAMA_API_KEY` | `gpt-oss:120b` | `gpt-oss:20b` | Asked for in the prompt |
+| `ollama-local` | none | `gemma4:e4b` | `gemma4:e4b` | JSON mode |
 
-NVIDIA requests are spaced to at most 40 a minute (`PATCHPILOT_NVIDIA_REQUESTS_PER_MINUTE`). That
-default is an assumption, so check your account's limit. NVIDIA's hosted API is a trial service
-with its own terms: read them, and do not send private code without checking them.
+Whatever the provider, every reply is validated against the expected structure. Prompt caching
+markers, refusal fallback and the effort setting apply only to Claude. Costs are calculated from
+the built-in Claude price table; for other providers they show as `unknown` unless you add prices
+with `PATCHPILOT_PRICES`.
+
+Defaults that differ between providers (override with `PATCHPILOT_MAX_TOKENS` and
+`PATCHPILOT_REQUESTS_PER_MINUTE`):
+
+- Reply limit: 16,000 tokens, but 4,096 for `groq` and 8,000 for `ollama-local`.
+- Request spacing: 40 a minute for `nvidia` and 30 for `groq`, none for the others. Check the
+  limits on your own account.
+
+For `ollama-local`, install Ollama, run `ollama pull gemma4:e4b` (a download of several gigabytes)
+and keep the server running. Local models can be slow, so you may need a larger
+`PATCHPILOT_TIMEOUT_SECONDS`. A local server with a small context length can cut off long prompts.
+
+Hosted providers receive your code. Read their terms before sending anything private.
 
 ## Usage
 
@@ -172,8 +187,8 @@ keep no `.env` file in the mounted folder, because the tests can read mounted fi
 docker run --rm -it -e ANTHROPIC_API_KEY -v "${PWD}:/work" patchpilot eval --readme README.md
 ```
 
-For NVIDIA, pass `-e NVIDIA_API_KEY` instead and add `--provider nvidia`. Costs then show as
-`unknown`, so compare bugs caught, tokens and time.
+For another provider, pass its key variable with `-e` and add `--provider <name>`. Costs then
+show as `unknown`, so compare bugs caught, tokens and time.
 
 Raw results are saved in `eval/results/`.
 
@@ -198,8 +213,10 @@ this text with the measured table.
 ## Limitations
 
 - No real-API results yet, and the GitHub Action has not been exercised with a key.
-- With NVIDIA, nothing forces the reply to be valid JSON, so some requests may fail validation.
-  The prompts were written with Claude in mind and have not been tuned for other models.
+- Outside Claude, nothing forces the reply to match the expected structure, so some requests may
+  fail validation. The prompts were written with Claude in mind and are not tuned for other models.
+- `ollama-local` does not work from inside the Docker container, which cannot reach the host's
+  `localhost`.
 - Results from one provider say nothing about the other. The GitHub Action uses Claude.
 - The evaluation is small and synthetic: one short file per case, one run, and model output varies
   between runs. A comment on a bug line counts even if it describes a different problem. False

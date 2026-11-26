@@ -86,6 +86,16 @@ def parse_diff(text: str) -> list[ChangedFile]:
     return files
 
 
+def new_file_diff(filename: str, content: str) -> str:
+    """Write `content` as the git diff that adds it as a new file."""
+    lines = content.removesuffix("\n").split("\n")
+    header = (
+        f"diff --git a/{filename} b/{filename}\nnew file mode 100644\n"
+        f"--- /dev/null\n+++ b/{filename}\n@@ -0,0 +1,{len(lines)} @@\n"
+    )
+    return header + "".join(f"+{line}\n" for line in lines)
+
+
 def read_new_version(changed: ChangedFile, repo: Path) -> str | None:
     """Read the changed file from a checkout. Return None if it cannot be read safely."""
     if changed.new_path is None:

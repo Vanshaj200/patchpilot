@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx2
 
 from patchpilot.config import Settings
-from patchpilot.diff import parse_diff
+from patchpilot.diff import new_file_diff, parse_diff
 from patchpilot.gentests import generate_tests
 from patchpilot.llm import LLMClient, LLMError
 from patchpilot.review import review_diff
@@ -80,16 +80,6 @@ def load_cases(directory: Path) -> list[Case]:
             )
         )
     return cases
-
-
-def new_file_diff(filename: str, content: str) -> str:
-    """Write `content` as the git diff that adds it as a new file."""
-    lines = content.removesuffix("\n").split("\n")
-    header = (
-        f"diff --git a/{filename} b/{filename}\nnew file mode 100644\n"
-        f"--- /dev/null\n+++ b/{filename}\n@@ -0,0 +1,{len(lines)} @@\n"
-    )
-    return header + "".join(f"+{line}\n" for line in lines)
 
 
 def evaluate_case(

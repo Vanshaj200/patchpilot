@@ -1,10 +1,11 @@
 """Settings read from environment variables and an optional .env file, and the price table."""
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,15 +40,82 @@ PRICES: dict[str, ModelPrice] = {
 }
 
 
+@dataclass(frozen=True)
+class ProviderInfo:
+    """What differs between the model APIs. Checked against their documentation on 2026-11-27."""
+
+    large_model: str
+    small_model: str
+    key_field: str | None  # the Settings field holding the key; None if no key is needed
+    base_url: str | None = None  # None for Claude, which has its own SDK
+    token_limit_field: str = "max_tokens"
+    json_mode: bool = False  # ask the API to reply with a JSON object
+    max_tokens: int = 16_000
+    requests_per_minute: int = 0  # 0 means no spacing between requests
+
+
+PROVIDERS: dict[str, ProviderInfo] = {
+    "anthropic": ProviderInfo("claude-opus-5-5", "claude-haiku-5-5", "anthropic_api_key"),
+    "nvidia": ProviderInfo(
+        "nvidia/nemotron-3-ultra-550b-a55b",
+        "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "nvidia_api_key",
+        base_url="https://integrate.api.nvidia.com/v1",
+        requests_per_minute=40,
+    ),
+    "groq": ProviderInfo(
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "groq_api_key",
+        base_url="https://api.groq.com/openai/v1",
+        token_limit_field="max_completion_tokens",
+        json_mode=True,
+        # A small reply limit and slow pace, because Groq's lower plans limit tokens a minute.
+        max_tokens=4_096,
+        requests_per_minute=30,
+    ),
+    "deepseek": ProviderInfo(
+        "deepseek-v4-pro",
+        "deepseek-flash",
+        "deepseek_api_key",
+        base_url="https://api.deepseek.com",
+        json_mode=True,
+    ),
+    # Ollama's cloud does not support structured outputs, so JSON is only requested in the prompt.
+    "ollama": ProviderInfo(
+        "gpt-oss:120b", "gpt-oss:20b", "ollama_api_key", base_url="https://ollama.com/v1"
+    ),
+    # One default model, so a single download is enough.
+    "ollama-local": ProviderInfo(
+        "gemma4:e4b",
+        "gemma4:e4b",
+        None,
+        base_url="http://localhost:11434/v1",
+        json_mode=True,
+        max_tokens=8_000,
+    ),
+}
+
+
 class Settings(BaseSettings):
-    """Each field is set by PATCHPILOT_<NAME>, except the API key. Real variables beat .env."""
+    """Each field is set by PATCHPILOT_<NAME>, except the API keys. Real variables beat .env."""
 
     model_config = SettingsConfigDict(env_prefix="PATCHPILOT_", env_file=".env", extra="ignore")
 
     # SecretStr prints as "**********", so the key cannot leak through logs or error messages.
-    api_key: SecretStr | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
-    model: str = "claude-opus-5-5"  # the large model
-    small_model: str = "claude-haiku-5-5"
+    anthropic_api_key: SecretStr | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
+    nvidia_api_key: SecretStr | None = Field(default=None, validation_alias="NVIDIA_API_KEY")
+    groq_api_key: SecretStr | None = Field(default=None, validation_alias="GROQ_API_KEY")
+    deepseek_api_key: SecretStr | None = Field(default=None, validation_alias="DEEPSEEK_API_KEY")
+    ollama_api_key: SecretStr | None = Field(default=None, validation_alias="OLLAMA_API_KEY")
+    provider: Literal["anthropic", "nvidia", "groq", "deepseek", "ollama", "ollama-local"] = (
+        "anthropic"
+    )
+    # Empty or zero means the provider's default from PROVIDERS.
+    model: str = ""  # the large model
+    small_model: str = ""
+    # Spaces out requests. Unset uses the provider's default; 0 switches spacing off.
+    requests_per_minute: int | None = Field(default=None, ge=0)
     # Routing sends a change to the small model only if it passes all three rules.
     routing: bool = True
     route_max_files: int = Field(default=1, ge=0)
@@ -63,8 +131,8 @@ class Settings(BaseSettings):
     response_cache: bool = True
     cache_dir: Path = Path(".patchpilot/cache")
     effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
-    # Upper limit on the reply, including the model's thinking.
-    max_tokens: int = Field(default=16_000, gt=0)
+    # Upper limit on the reply, including the model's thinking. 0 uses the provider's default.
+    max_tokens: int = Field(default=0, ge=0)
     timeout_seconds: float = Field(default=180.0, gt=0)
     max_retries: int = Field(default=2, ge=0, le=2)
     prompt_version: Literal["v1", "v2"] = "v2"
@@ -75,3 +143,13 @@ class Settings(BaseSettings):
     db_path: Path = Path(".patchpilot/usage.db")
     # Override the whole table with JSON in PATCHPILOT_PRICES.
     prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(PRICES))
+
+    @model_validator(mode="after")
+    def use_provider_defaults(self) -> "Settings":
+        info = PROVIDERS[self.provider]
+        self.model = self.model or info.large_model
+        self.small_model = self.small_model or info.small_model
+        self.max_tokens = self.max_tokens or info.max_tokens
+        if self.requests_per_minute is None:
+            self.requests_per_minute = info.requests_per_minute
+        return self

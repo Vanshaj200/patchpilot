@@ -1,10 +1,11 @@
 # PatchPilot
 
-A Python CLI and GitHub Action that reviews a git diff with the Claude API, generates pytest tests
-for the changed functions, runs them, and records the tokens and cost of every request.
+A Python CLI and GitHub Action that reviews a git diff with the Claude API (or NVIDIA, Groq,
+DeepSeek or Ollama), generates pytest tests for the changed functions, runs them, and records the
+tokens and cost of every request.
 
-**Status:** the code is complete and tested against a mocked API. It has not yet been run against
-the real Claude API, so there are no benchmark results.
+**Status:** the code is complete and tested against mocked APIs. It has not yet been run against
+a real model API, so there are no benchmark results.
 
 ## Architecture
 
@@ -18,7 +19,9 @@ flowchart LR
     router --> llm[llm.py]
     prompts[prompts.py] --> llm
     llm <--> cache[(cache.py<br/>local replies)]
-    llm <--> api[Claude API]
+    llm --> providers[providers.py]
+    providers <--> claude[Claude API]
+    providers <--> other[NVIDIA, Groq, DeepSeek, Ollama]
     llm --> cost[cost.py] --> store[(store.py<br/>SQLite)] --> report[report]
     llm --> comments[review comments]
     gentests --> file[test file] --> runner[runner.py<br/>temporary copy, timeout]
@@ -34,7 +37,8 @@ flowchart LR
 | `review.py` | Asks for review comments and drops any on files that were not sent |
 | `gentests.py` | Finds changed functions with `ast` and asks for tests |
 | `prompts.py` | Versioned prompts (`v1`, `v2`) and the text form of a diff |
-| `llm.py` | One request: timeout, up to 2 retries, `max_tokens`, validated JSON, logging |
+| `llm.py` | One request: size limit, local cache, validated JSON, logging |
+| `providers.py` | The model API calls: timeout, up to 2 retries, reply token limit |
 | `router.py` | Rules that pick the small or large model |
 | `cache.py` | Local reply cache and prompt cache markers |
 | `cost.py`, `store.py` | Price calculation and the SQLite request log |
@@ -64,6 +68,38 @@ python -m pip install -e ".[dev]"
 
 Set `ANTHROPIC_API_KEY` as an environment variable, or copy `.env.example` to `.env` and fill it
 in. Requests are billed to that key.
+
+## Providers
+
+Claude is the default. For another provider, set its key and either set
+`PATCHPILOT_PROVIDER=<name>` or add `--provider <name>` to `review`, `gentests` or `eval`.
+
+| Provider | Key variable | Large model | Small model | JSON reply |
+|---|---|---|---|---|
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-opus-5-5` | `claude-haiku-5-5` | Schema enforced by the API |
+| `nvidia` | `NVIDIA_API_KEY` | `nvidia/nemotron-3-ultra-550b-a55b` | `nvidia/nemotron-3.5-lightning-30b-a3b` | Asked for in the prompt |
+| `groq` | `GROQ_API_KEY` | `openai/gpt-oss-120b` | `openai/gpt-oss-20b` | JSON mode |
+| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-v4-pro` | `deepseek-flash` | JSON mode |
+| `ollama` (cloud) | `OLLAMA_API_KEY` | `gpt-oss:120b` | `gpt-oss:20b` | Asked for in the prompt |
+| `ollama-local` | none | `gemma4:e4b` | `gemma4:e4b` | JSON mode |
+
+Whatever the provider, every reply is validated against the expected structure. Prompt caching
+markers, refusal fallback and the effort setting apply only to Claude. Costs are calculated from
+the built-in Claude price table; for other providers they show as `unknown` unless you add prices
+with `PATCHPILOT_PRICES`.
+
+Defaults that differ between providers (override with `PATCHPILOT_MAX_TOKENS` and
+`PATCHPILOT_REQUESTS_PER_MINUTE`):
+
+- Reply limit: 16,000 tokens, but 4,096 for `groq` and 8,000 for `ollama-local`.
+- Request spacing: 40 a minute for `nvidia` and 30 for `groq`, none for the others. Check the
+  limits on your own account.
+
+For `ollama-local`, install Ollama, run `ollama pull gemma4:e4b` (a download of several gigabytes)
+and keep the server running. Local models can be slow, so you may need a larger
+`PATCHPILOT_TIMEOUT_SECONDS`. A local server with a small context length can cut off long prompts.
+
+Hosted providers receive your code. Read their terms before sending anything private.
 
 ## Usage
 
@@ -101,8 +137,7 @@ a diff that is sent once pays the cache-write premium and never reads it back.
 ### Settings
 
 Every setting is an environment variable starting with `PATCHPILOT_`; [.env.example](.env.example)
-lists them with their defaults. The defaults are `claude-opus-5-5` (large) and `claude-haiku-5-5`
-(small). Prices are in [config.py](src/patchpilot/config.py), checked on 2026-11-26 against the
+lists them with their defaults. Claude prices are in [config.py](src/patchpilot/config.py), checked on 2026-11-26 against the
 [pricing page](https://platform.claude.com/docs/en/about-claude/pricing).
 
 If a safety check declines a request to a model that supports it, the API is asked to retry on
@@ -152,6 +187,9 @@ keep no `.env` file in the mounted folder, because the tests can read mounted fi
 docker run --rm -it -e ANTHROPIC_API_KEY -v "${PWD}:/work" patchpilot eval --readme README.md
 ```
 
+For another provider, pass its key variable with `-e` and add `--provider <name>`. Costs then
+show as `unknown`, so compare bugs caught, tokens and time.
+
 Raw results are saved in `eval/results/`.
 
 ### Results
@@ -163,7 +201,8 @@ this text with the measured table.
 
 ## Safety
 
-- The API key is read from the environment, never logged and never passed to generated tests.
+- API keys are read from the environment or `.env`, never logged and never passed to generated
+  tests. Each key is sent only to its own provider.
 - Prompts and code are written to disk only with `--debug` (to `patchpilot-debug.log`). The
   response cache stores model replies, which can quote code or contain generated tests.
 - The diff is treated as untrusted: paths outside the repository are never read, and prompts tell
@@ -174,6 +213,11 @@ this text with the measured table.
 ## Limitations
 
 - No real-API results yet, and the GitHub Action has not been exercised with a key.
+- Outside Claude, nothing forces the reply to match the expected structure, so some requests may
+  fail validation. The prompts were written with Claude in mind and are not tuned for other models.
+- `ollama-local` does not work from inside the Docker container, which cannot reach the host's
+  `localhost`.
+- Results from one provider say nothing about the other. The GitHub Action uses Claude.
 - The evaluation is small and synthetic: one short file per case, one run, and model output varies
   between runs. A comment on a bug line counts even if it describes a different problem. False
   positives on correct code are not measured.

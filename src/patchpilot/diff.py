@@ -53,6 +53,11 @@ class ChangedFile:
     hunks: tuple[Hunk, ...]
     is_binary: bool
 
+    @property
+    def path(self) -> str:
+        """The path after the change; for a deleted file, the path it had."""
+        return self.new_path if self.new_path is not None else str(self.old_path)
+
 
 class DiffParseError(ValueError):
     """The text is not a git diff that PatchPilot understands.

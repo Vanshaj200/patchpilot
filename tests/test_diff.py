@@ -2,7 +2,15 @@ from pathlib import Path
 
 import pytest
 
-from patchpilot.diff import ChangedFile, ChangeType, DiffParseError, Line, LineKind, parse_diff
+from patchpilot.diff import (
+    ChangedFile,
+    ChangeType,
+    DiffParseError,
+    Line,
+    LineKind,
+    parse_diff,
+    read_new_version,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -227,6 +235,31 @@ def test_unsupported_diff_types_raise(fixture: str, message: str) -> None:
 def test_incomplete_sections_raise(text: str, message: str) -> None:
     with pytest.raises(DiffParseError, match=message):
         parse_diff(text)
+
+
+def test_path_is_the_new_path_or_the_deleted_one() -> None:
+    assert parse_one("renamed_without_changes").path == "after.py"
+    assert parse_one("deleted_file").path == "old_module.py"
+
+
+def test_read_new_version(tmp_path: Path) -> None:
+    (tmp_path / "new_module.py").write_bytes(b"x = 1\r\n")
+
+    assert read_new_version(parse_one("added_file"), tmp_path) == "x = 1\r\n"
+
+
+@pytest.mark.parametrize("content", [None, b"\xff\xfe\x00"])
+def test_read_new_version_of_a_missing_or_non_text_file(
+    tmp_path: Path, content: bytes | None
+) -> None:
+    if content is not None:
+        (tmp_path / "new_module.py").write_bytes(content)
+
+    assert read_new_version(parse_one("added_file"), tmp_path) is None
+
+
+def test_deleted_file_has_no_new_version(tmp_path: Path) -> None:
+    assert read_new_version(parse_one("deleted_file"), tmp_path) is None
 
 
 def test_error_messages_do_not_quote_source_code() -> None:

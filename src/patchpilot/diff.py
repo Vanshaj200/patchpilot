@@ -3,6 +3,7 @@
 import re
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
 # Example: "@@ -22,7 +22,8 @@ def main():". A missing count means 1.
 _HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: (.*))?$")
@@ -83,6 +84,21 @@ def parse_diff(text: str) -> list[ChangedFile]:
         changed_file, index = _parse_file(lines, index)
         files.append(changed_file)
     return files
+
+
+def read_new_version(changed: ChangedFile, repo: Path) -> str | None:
+    """Read the changed file from a checkout. Return None if it cannot be read safely."""
+    if changed.new_path is None:
+        return None
+    root = repo.resolve()
+    path = (root / changed.new_path).resolve()
+    # A diff is untrusted input: a path such as "../../.env" must never be read and sent.
+    if not path.is_relative_to(root) or not path.is_file():
+        return None
+    try:
+        return path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 def _parse_file(lines: list[str], start: int) -> tuple[ChangedFile, int]:

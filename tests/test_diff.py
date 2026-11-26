@@ -132,6 +132,103 @@ def test_bad_input_raises(text: str, message: str) -> None:
         parse_diff(text)
 
 
+def test_pure_rename_has_both_paths_and_no_hunks() -> None:
+    changed = parse_one("renamed_without_changes")
+
+    assert changed.change_type == ChangeType.RENAMED
+    assert (changed.old_path, changed.new_path) == ("before.py", "after.py")
+    assert changed.hunks == ()
+
+
+def test_rename_with_edits_keeps_its_hunks() -> None:
+    changed = parse_one("renamed_with_changes")
+
+    assert changed.change_type == ChangeType.RENAMED
+    assert (changed.old_path, changed.new_path) == ("pkg/before.py", "pkg/after.py")
+    assert len(changed.hunks) == 1
+
+
+@pytest.mark.parametrize(
+    ("fixture", "change_type", "old_path", "new_path"),
+    [
+        ("empty_file_added", ChangeType.ADDED, None, "empty.py"),
+        ("empty_file_deleted", ChangeType.DELETED, "empty.py", None),
+        ("mode_change", ChangeType.MODIFIED, "script.py", "script.py"),
+    ],
+)
+def test_sections_without_hunks(
+    fixture: str, change_type: ChangeType, old_path: str | None, new_path: str | None
+) -> None:
+    changed = parse_one(fixture)
+
+    assert (changed.change_type, changed.old_path, changed.new_path) == (
+        change_type,
+        old_path,
+        new_path,
+    )
+    assert changed.hunks == ()
+    assert not changed.is_binary
+
+
+@pytest.mark.parametrize("fixture", ["binary_file", "binary_patch"])
+def test_binary_file_is_flagged(fixture: str) -> None:
+    changed = parse_one(fixture)
+
+    assert changed.is_binary
+    assert changed.new_path == "logo.bin"
+    assert changed.hunks == ()
+
+
+def test_parsing_continues_after_binary_data() -> None:
+    text = load("binary_patch") + load("added_file")
+
+    assert [f.new_path for f in parse_diff(text)] == ["logo.bin", "new_module.py"]
+
+
+def test_paths_with_spaces() -> None:
+    files = parse_diff(load("paths_with_spaces"))
+
+    assert [f.new_path for f in files] == ["my dir/my file.py", "my dir/new empty.py"]
+
+
+def test_quoted_non_ascii_path_is_decoded() -> None:
+    changed = parse_one("non_ascii_path")
+
+    assert changed.old_path == changed.new_path == "café.py"
+
+
+def test_diff_saved_with_crlf_line_endings() -> None:
+    changed = parse_diff(load("added_file").replace("\n", "\r\n"))[0]
+
+    assert changed.new_path == "new_module.py"
+    assert len(changed.hunks[0].lines) == 2
+
+
+@pytest.mark.parametrize(
+    ("fixture", "message"),
+    [
+        ("copied_file", "copy detection"),
+        ("combined_merge", "combined merge diffs"),
+    ],
+)
+def test_unsupported_diff_types_raise(fixture: str, message: str) -> None:
+    with pytest.raises(DiffParseError, match=message):
+        parse_diff(load(fixture))
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("diff --git a/f b/f\nindex 111..222 100644\n", "may be truncated"),
+        ("diff --git a/f b/g\nold mode 100644\nnew mode 100755\n", "cannot read the paths"),
+        ("diff --git a/f b/g\nrename from f\n", "missing the new path"),
+    ],
+)
+def test_incomplete_sections_raise(text: str, message: str) -> None:
+    with pytest.raises(DiffParseError, match=message):
+        parse_diff(text)
+
+
 def test_error_messages_do_not_quote_source_code() -> None:
     with pytest.raises(DiffParseError) as caught:
         parse_diff(HEADER + "@@ -1,2 +1,2 @@\n a\nsecret_token = 'abc'\n")

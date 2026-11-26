@@ -1,0 +1,16 @@
+diff --git a/pkg/before.py b/pkg/after.py
+similarity index 88%
+rename from pkg/before.py
+rename to pkg/after.py
+index 2120eca..7a36281 100644
+--- a/pkg/before.py
++++ b/pkg/after.py
+@@ -2,7 +2,7 @@ value_1 = 1
+ value_2 = 2
+ value_3 = 3
+ value_4 = 4
+-value_5 = 5
++value_5 = 500
+ value_6 = 6
+ value_7 = 7
+ value_8 = 8

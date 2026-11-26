@@ -1,0 +1,10 @@
+diff --cc app.py
+index 367805c,e7cabca..0000000
+--- a/app.py
++++ b/app.py
+@@@ -1,1 -1,1 +1,5 @@@
+++<<<<<<< HEAD
+ +a = 3
+++=======
++ a = 2
+++>>>>>>> other

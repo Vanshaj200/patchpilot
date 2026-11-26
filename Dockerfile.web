@@ -1,0 +1,14 @@
+# The hosted web page. Visitors bring their own API keys, so the image needs no secrets.
+FROM python:3.11-slim
+
+WORKDIR /opt/patchpilot
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN pip install --no-cache-dir ".[web]"
+
+RUN useradd --create-home patchpilot
+USER patchpilot
+WORKDIR /home/patchpilot
+
+# Listens on the port in the PORT variable, or 10000.
+CMD ["patchpilot", "serve"]

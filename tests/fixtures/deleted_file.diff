@@ -1,0 +1,8 @@
+diff --git a/old_module.py b/old_module.py
+deleted file mode 100644
+index f240ec7..0000000
+--- a/old_module.py
++++ /dev/null
+@@ -1,2 +0,0 @@
+-import os
+-print(os.name)

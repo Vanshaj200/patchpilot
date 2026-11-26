@@ -1,2 +1,5 @@
 # Store and check out text files with LF line endings on every operating system.
 * text=auto eol=lf
+
+# Diff fixtures must stay byte-for-byte as git produced them, including CRLF content.
+*.diff -text

@@ -1,0 +1,8 @@
+diff --git a/new_module.py b/new_module.py
+new file mode 100644
+index 0000000..6fd5f48
+--- /dev/null
++++ b/new_module.py
+@@ -0,0 +1,2 @@
++def double(x: int) -> int:
++    return x * 2

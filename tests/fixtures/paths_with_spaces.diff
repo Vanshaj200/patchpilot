@@ -1,0 +1,10 @@
+diff --git a/my dir/my file.py b/my dir/my file.py
+index 1337a53..e7cabca 100644
+--- a/my dir/my file.py	
++++ b/my dir/my file.py	
+@@ -1 +1 @@
+-a = 1
++a = 2
+diff --git a/my dir/new empty.py b/my dir/new empty.py
+new file mode 100644
+index 0000000..e69de29

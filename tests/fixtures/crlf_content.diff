@@ -1,0 +1,8 @@
+diff --git a/win.py b/win.py
+index b4e31d4..bc11429 100644
+--- a/win.py
++++ b/win.py
+@@ -1,2 +1,2 @@
+ a = 1
+-b = 2
++b = 3

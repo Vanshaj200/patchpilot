@@ -53,6 +53,25 @@ def test_review_github_format(fake_cli: FakeAPI, tmp_path: Path) -> None:
     assert result.stdout.startswith("::error file=calc.py,line=2,")
 
 
+def test_provider_option_selects_nvidia(
+    fake_cli: FakeAPI, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+
+    result = runner.invoke(cli.app, ["review", write_diff(tmp_path), "--provider", "nvidia"])
+
+    assert result.exit_code == 1
+    assert "NVIDIA_API_KEY is not set" in result.stderr
+    assert fake_cli.requests == []
+
+
+def test_unknown_provider(fake_cli: FakeAPI, tmp_path: Path) -> None:
+    result = runner.invoke(cli.app, ["review", write_diff(tmp_path), "--provider", "other"])
+
+    assert result.exit_code == 1
+    assert "provider" in result.stderr
+
+
 def test_review_accepts_a_byte_order_mark(fake_cli: FakeAPI, tmp_path: Path) -> None:
     result = runner.invoke(cli.app, ["review", write_diff(tmp_path, "﻿" + DIFF)])
 
@@ -121,6 +140,20 @@ def test_report_mentions_unknown_costs(fake_cli: FakeAPI, tmp_path: Path) -> Non
     result = runner.invoke(cli.app, ["report"])
 
     assert "1 requests have no known cost" in result.stdout
+    total = next(line for line in result.stdout.splitlines() if line.startswith("Total"))
+    assert total.split()[-1] == "unknown"
+
+
+def test_report_marks_an_incomplete_total(fake_cli: FakeAPI, tmp_path: Path) -> None:
+    diff = write_diff(tmp_path)
+    runner.invoke(cli.app, ["review", diff, "--no-routing", "--no-response-cache"])
+    fake_cli.responses = [reply(model="claude-unreleased")]
+    runner.invoke(cli.app, ["review", diff, "--no-routing", "--no-response-cache"])
+
+    result = runner.invoke(cli.app, ["report"])
+
+    total = next(line for line in result.stdout.splitlines() if line.startswith("Total"))
+    assert total.split()[-1] == ">=0.000800"
 
 
 def test_cache_flags(fake_cli: FakeAPI, tmp_path: Path) -> None:
@@ -259,7 +292,7 @@ def test_eval_asks_before_spending(fake_cli: FakeAPI, tmp_path: Path) -> None:
     result = runner.invoke(cli.app, ["eval", "--cases", make_case(tmp_path)], input="n\n")
 
     assert result.exit_code == 1
-    assert "up to 4 paid API requests" in result.stdout
+    assert "up to 4 requests to the anthropic API" in result.stdout
     assert fake_cli.requests == []
 
 

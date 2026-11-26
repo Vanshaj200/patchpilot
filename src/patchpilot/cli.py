@@ -47,6 +47,7 @@ RepoOption = Annotated[
     typer.Option(exists=True, file_okay=False, help="Checkout that already contains the change."),
 ]
 PromptOption = Annotated[str | None, typer.Option(help="Prompt version: v1 or v2.")]
+ProviderOption = Annotated[str | None, typer.Option(help="Model API: anthropic or nvidia.")]
 # None means "not given", so the environment setting applies.
 RoutingOption = Annotated[
     bool | None,
@@ -75,7 +76,7 @@ class OutputFormat(StrEnum):
 
 @app.callback()
 def main() -> None:
-    """Review a git diff with the Claude API and test the changed code."""
+    """Review a git diff with a language model and test the changed code."""
     # Test messages and replies can hold characters that a piped Windows console cannot
     # encode. Show them escaped instead of crashing.
     for stream in (sys.stdout, sys.stderr):
@@ -90,6 +91,7 @@ def review(
     output_format: Annotated[
         OutputFormat, typer.Option("--format", help="json, or github for pull request notes.")
     ] = OutputFormat.JSON,
+    provider: ProviderOption = None,
     prompt_version: PromptOption = None,
     routing: RoutingOption = None,
     prompt_cache: PromptCacheOption = None,
@@ -101,6 +103,7 @@ def review(
         _enable_debug_log()
     with _report_errors():
         settings = _load_settings(
+            provider=provider,
             prompt_version=prompt_version,
             routing=routing,
             prompt_cache=prompt_cache,
@@ -122,6 +125,7 @@ def gentests(
     output: Annotated[Path, typer.Option(help="Where to write the tests.")] = Path(
         "patchpilot_tests.py"
     ),
+    provider: ProviderOption = None,
     prompt_version: PromptOption = None,
     routing: RoutingOption = None,
     prompt_cache: PromptCacheOption = None,
@@ -133,6 +137,7 @@ def gentests(
         _enable_debug_log()
     with _report_errors():
         settings = _load_settings(
+            provider=provider,
             prompt_version=prompt_version,
             routing=routing,
             prompt_cache=prompt_cache,
@@ -210,11 +215,12 @@ def evaluate(
     readme: Annotated[
         Path | None, typer.Option(help="README whose eval section should be replaced.")
     ] = None,
-    yes: Annotated[bool, typer.Option("--yes", help="Do not ask before spending money.")] = False,
+    provider: ProviderOption = None,
+    yes: Annotated[bool, typer.Option("--yes", help="Do not ask before sending requests.")] = False,
 ) -> None:
-    """Compare baseline and optimised runs on the seeded bugs. Makes paid API requests."""
+    """Compare baseline and optimised runs on the seeded bugs. API requests may be billed."""
     with _report_errors():
-        settings = _load_settings()
+        settings = _load_settings(provider=provider)
         selected = load_cases(cases)[:limit]
         if not selected:
             raise OSError(f"no cases found in {cases}")
@@ -222,12 +228,14 @@ def evaluate(
         LLMClient(settings, on_request=lambda record: None)
         requests = len(selected) * len(CONFIGURATIONS) * (2 if tests else 1)
         if not yes:
-            typer.confirm(f"This sends up to {requests} paid API requests. Continue?", abort=True)
+            question = f"This sends up to {requests} requests to the {settings.provider} API."
+            typer.confirm(f"{question} Continue?", abort=True)
 
         started = datetime.now(UTC)
         details = {
             "Run (UTC)": started.strftime("%Y-%m-%d %H:%M"),
             "PatchPilot": __version__,
+            "provider": settings.provider,
             "large model": settings.model,
             "small model": settings.small_model,
             "prompt": settings.prompt_version,
@@ -275,10 +283,12 @@ def _format_report(rows: Sequence[SummaryRow]) -> str:
     for row in rows:
         counts = [row.requests, row.cache_hits, row.input_tokens, row.output_tokens]
         counts += [row.cache_write_tokens, row.cache_read_tokens]
-        table.append([row.feature, row.model, *map(str, counts), f"{row.cost_usd:.6f}"])
+        cost = _format_cost(row.cost_usd, row.unknown_cost_requests)
+        table.append([row.feature, row.model, *map(str, counts), cost])
     totals = [sum(int(line[column]) for line in table[1:]) for column in range(2, len(header))]
-    total_cost = sum(row.cost_usd for row in rows)
-    table.append(["Total", "", *map(str, totals), f"{total_cost:.6f}"])
+    unknown = sum(row.unknown_cost_requests for row in rows)
+    total_cost = _format_cost(sum(row.cost_usd for row in rows), unknown)
+    table.append(["Total", "", *map(str, totals), total_cost])
 
     widths = [max(len(line[column]) for line in table) for column in range(len(table[0]))]
     lines = [
@@ -290,10 +300,16 @@ def _format_report(rows: Sequence[SummaryRow]) -> str:
     ]
     saved = sum(row.tokens_saved for row in rows)
     lines.append(f"\nEstimated input tokens saved by not sending whole files: {saved}")
-    unknown = sum(row.unknown_cost_requests for row in rows)
     if unknown:
         lines.append(f"{unknown} requests have no known cost and are not in the cost figures.")
     return "\n".join(lines)
+
+
+def _format_cost(known_cost: float, unknown_requests: int) -> str:
+    """Never show a sum that leaves requests out as if it were complete."""
+    if not unknown_requests:
+        return f"{known_cost:.6f}"
+    return f">={known_cost:.6f}" if known_cost else "unknown"
 
 
 def _load_settings(**overrides: str | bool | None) -> Settings:

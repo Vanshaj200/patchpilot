@@ -262,6 +262,24 @@ def evaluate(
     typer.echo(f"Saved {results / stem}.json and .md", err=True)
 
 
+@app.command()
+def web(
+    port: Annotated[int, typer.Option(min=1, max=65535, help="Port to listen on.")] = 8000,
+) -> None:
+    """Open a local web page for reviews with a model and API key of your choice."""
+    try:
+        # Imported here so the other commands work without the optional web libraries.
+        import uvicorn
+
+        from patchpilot.web import create_app
+    except ImportError as error:
+        typer.echo('Install the web libraries first: pip install -e ".[web]"', err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(f"Open http://127.0.0.1:{port} in your browser. Press Ctrl+C to stop.")
+    # No option to listen elsewhere: the server can use API keys saved on this computer.
+    uvicorn.run(create_app(), host="127.0.0.1", port=port)
+
+
 @contextmanager
 def _report_errors() -> Iterator[None]:
     """Turn expected failures into a short message and exit code 1."""

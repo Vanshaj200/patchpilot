@@ -1,4 +1,4 @@
-"""NVIDIA backend tests against a fake API. Claude's backend is covered by test_llm.py."""
+"""Tests of the OpenAI-compatible backend against a fake API. See test_llm.py for Claude."""
 
 import json
 import time
@@ -9,7 +9,7 @@ from conftest import COMMENT, FakeAPI, reply
 
 from patchpilot.config import Settings
 from patchpilot.llm import LLMError
-from patchpilot.providers import NvidiaBackend, create_backend
+from patchpilot.providers import CompatibleBackend, create_backend
 from patchpilot.review import Review
 
 LARGE = "nvidia/nemotron-3-ultra-550b-a55b"
@@ -20,7 +20,7 @@ def nvidia(**overrides: object) -> Settings:
     values: dict[str, object] = {
         "NVIDIA_API_KEY": "nv-key",
         "provider": "nvidia",
-        "nvidia_requests_per_minute": 0,
+        "requests_per_minute": 0,
     }
     return Settings(**(values | overrides))
 
@@ -101,7 +101,7 @@ def test_the_anthropic_key_is_never_sent_to_nvidia(api: FakeAPI) -> None:
     ask(api, nvidia(ANTHROPIC_API_KEY="claude-secret"))
 
     request = api.requests[0]
-    assert "claude-secret" not in str(request.headers) + request.content.decode()
+    assert "claude-secret" not in str(dict(request.headers)) + request.content.decode()
 
 
 def test_reply_is_validated_and_recorded(api: FakeAPI) -> None:
@@ -184,7 +184,7 @@ def test_rate_limit_is_retried_twice_then_recorded(api: FakeAPI) -> None:
     busy = httpx2.Response(429, json={"detail": "slow down"}, headers={"retry-after-ms": "1"})
     api.responses = [busy]
 
-    with pytest.raises(LLMError, match="NVIDIA API request failed"):
+    with pytest.raises(LLMError, match="nvidia API request failed"):
         ask(api)
 
     assert len(api.requests) == 3
@@ -236,22 +236,141 @@ def fake_clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
 
     monkeypatch.setattr(time, "monotonic", lambda: now[0])
     monkeypatch.setattr(time, "sleep", sleep)
-    monkeypatch.setattr(NvidiaBackend, "_next_start", 0.0)
+    monkeypatch.setattr(CompatibleBackend, "_next_start", {})
     return sleeps
 
 
 def test_requests_are_spaced_across_clients(fake_clock: list[float]) -> None:
-    settings = nvidia(nvidia_requests_per_minute=30)
+    settings = nvidia(requests_per_minute=30)
 
-    NvidiaBackend(settings, None).wait_for_turn()
-    NvidiaBackend(settings, None).wait_for_turn()
+    CompatibleBackend(settings, None).wait_for_turn()
+    CompatibleBackend(settings, None).wait_for_turn()
 
     assert fake_clock == [pytest.approx(2.0)]
 
 
 def test_spacing_can_be_switched_off(fake_clock: list[float]) -> None:
-    backend = NvidiaBackend(nvidia(), None)
+    backend = CompatibleBackend(nvidia(), None)
     backend.wait_for_turn()
     backend.wait_for_turn()
 
     assert fake_clock == []
+
+
+# provider, key variable, address, token limit field, JSON mode, large model, small model
+EXPECTED = [
+    (
+        "nvidia",
+        "NVIDIA_API_KEY",
+        "https://integrate.api.nvidia.com/v1",
+        "max_tokens",
+        False,
+        LARGE,
+        SMALL,
+    ),
+    (
+        "groq",
+        "GROQ_API_KEY",
+        "https://api.groq.com/openai/v1",
+        "max_completion_tokens",
+        True,
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+    ),
+    (
+        "deepseek",
+        "DEEPSEEK_API_KEY",
+        "https://api.deepseek.com",
+        "max_tokens",
+        True,
+        "deepseek-v4-pro",
+        "deepseek-flash",
+    ),
+    (
+        "ollama",
+        "OLLAMA_API_KEY",
+        "https://ollama.com/v1",
+        "max_tokens",
+        False,
+        "gpt-oss:120b",
+        "gpt-oss:20b",
+    ),
+    (
+        "ollama-local",
+        None,
+        "http://localhost:11434/v1",
+        "max_tokens",
+        True,
+        "gemma4:e4b",
+        "gemma4:e4b",
+    ),
+]
+ALL_KEYS = {
+    name: f"secret-for-{name}"
+    for name in (
+        "ANTHROPIC_API_KEY",
+        "NVIDIA_API_KEY",
+        "GROQ_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OLLAMA_API_KEY",
+    )
+}
+
+
+@pytest.mark.parametrize(
+    ("provider", "variable", "address", "limit_field", "json_mode", "large", "small"), EXPECTED
+)
+def test_each_provider_gets_its_own_request(
+    api: FakeAPI,
+    provider: str,
+    variable: str | None,
+    address: str,
+    limit_field: str,
+    json_mode: bool,
+    large: str,
+    small: str,
+) -> None:
+    api.responses = [completion()]
+    settings = Settings(provider=provider, requests_per_minute=0, **ALL_KEYS)
+
+    ask(api, settings)
+
+    assert (settings.model, settings.small_model) == (large, small)
+    request = api.requests[0]
+    assert str(request.url) == f"{address}/chat/completions"
+    body = api.sent_body()
+    assert body["model"] == large
+    assert body[limit_field] == settings.max_tokens > 0
+    assert set(body) - {"response_format"} == {"model", "messages", limit_field, "stream"}
+    assert ("response_format" in body) is json_mode
+    assert "JSON" in body["messages"][0]["content"]
+    # Only this provider's key leaves the machine, and a local server gets none.
+    sent = str(dict(request.headers)) + request.content.decode()
+    for name, secret in ALL_KEYS.items():
+        assert (secret in sent) is (name == variable)
+
+
+@pytest.mark.parametrize(
+    ("provider", "variable"), [(row[0], row[1]) for row in EXPECTED if row[1] is not None]
+)
+def test_each_provider_names_its_missing_key(provider: str, variable: str) -> None:
+    others = {name: key for name, key in ALL_KEYS.items() if name != variable}
+
+    with pytest.raises(LLMError, match=f"^{variable} is not set"):
+        create_backend(Settings(provider=provider, **others), None)
+
+
+def test_provider_defaults_for_limits() -> None:
+    groq = Settings(provider="groq")
+
+    assert (groq.max_tokens, groq.requests_per_minute) == (4096, 30)
+    assert Settings(provider="deepseek").requests_per_minute == 0
+    overridden = Settings(provider="groq", max_tokens=99, requests_per_minute=0)
+    assert (overridden.max_tokens, overridden.requests_per_minute) == (99, 0)
+
+
+def test_unreachable_local_server_gives_a_hint(api: FakeAPI) -> None:
+    api.responses = [httpx2.ConnectError("refused")]
+
+    with pytest.raises(LLMError, match="Is the Ollama server running"):
+        ask(api, Settings(provider="ollama-local", max_retries=0))

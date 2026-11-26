@@ -16,7 +16,7 @@ from typing import Annotated
 import typer
 
 from patchpilot import __version__
-from patchpilot.config import Settings
+from patchpilot.config import PROVIDERS, Settings
 from patchpilot.diff import ChangedFile, DiffParseError, parse_diff
 from patchpilot.evaluation import (
     CONFIGURATIONS,
@@ -47,7 +47,7 @@ RepoOption = Annotated[
     typer.Option(exists=True, file_okay=False, help="Checkout that already contains the change."),
 ]
 PromptOption = Annotated[str | None, typer.Option(help="Prompt version: v1 or v2.")]
-ProviderOption = Annotated[str | None, typer.Option(help="Model API: anthropic or nvidia.")]
+ProviderOption = Annotated[str | None, typer.Option(help=f"Model API: {', '.join(PROVIDERS)}.")]
 # None means "not given", so the environment setting applies.
 RoutingOption = Annotated[
     bool | None,

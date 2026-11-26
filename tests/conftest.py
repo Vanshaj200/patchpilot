@@ -30,7 +30,17 @@ COMMENT = {"file": "calc.py", "line": 2, "severity": "high", "message": "Skips t
 def isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
     """Keep real API keys, settings and .env files away from every test."""
     for name in list(os.environ):
-        if name.startswith(("ANTHROPIC_", "NVIDIA_", "OPENAI_", "PATCHPILOT_")):
+        if name.startswith(
+            (
+                "ANTHROPIC_",
+                "DEEPSEEK_",
+                "GROQ_",
+                "NVIDIA_",
+                "OLLAMA_",
+                "OPENAI_",
+                "PATCHPILOT_",
+            )
+        ):
             monkeypatch.delenv(name)
     monkeypatch.chdir(tmp_path)
     yield

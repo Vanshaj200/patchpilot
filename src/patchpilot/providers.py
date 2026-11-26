@@ -1,10 +1,10 @@
-"""The two model APIs. Each backend sends one prompt and returns a Reply in a common form."""
+"""The model APIs. Each backend sends one prompt and returns a Reply in a common form."""
 
 import json
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 import anthropic
 import httpx2
@@ -12,10 +12,8 @@ import openai
 from pydantic import SecretStr
 
 from patchpilot.cache import text_block
-from patchpilot.config import Settings
+from patchpilot.config import PROVIDERS, Settings
 from patchpilot.cost import TokenUsage
-
-NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 # These Claude models accept server-side refusal fallbacks: if a safety check declines a request
 # (possible when reviewing security-related code), the API reruns it on another model.
@@ -68,9 +66,9 @@ class Backend(Protocol):
 
 
 def create_backend(settings: Settings, http_client: httpx2.Client | None) -> Backend:
-    if settings.provider == "nvidia":
-        return NvidiaBackend(settings, http_client)
-    return AnthropicBackend(settings, http_client)
+    if settings.provider == "anthropic":
+        return AnthropicBackend(settings, http_client)
+    return CompatibleBackend(settings, http_client)
 
 
 class AnthropicBackend:
@@ -81,7 +79,7 @@ class AnthropicBackend:
         # The SDK retries connection errors, timeouts, rate limits and server errors with
         # backoff. A second retry loop here would multiply the number of attempts.
         self._client = anthropic.Anthropic(
-            api_key=_require(settings.api_key, "ANTHROPIC_API_KEY"),
+            api_key=_require(settings.anthropic_api_key, "ANTHROPIC_API_KEY"),
             timeout=settings.timeout_seconds,
             max_retries=settings.max_retries,
             http_client=http_client,
@@ -139,23 +137,32 @@ class AnthropicBackend:
         )
 
 
-class NvidiaBackend:
-    """Models hosted by NVIDIA, through its OpenAI-compatible API.
+class CompatibleBackend:
+    """Any provider with an OpenAI-compatible API: NVIDIA, Groq, DeepSeek and Ollama.
 
-    The API documentation for these models lists no JSON output option, so the schema is
-    described in the prompt. Nothing enforces it until the reply is validated.
+    The JSON schema is described in the prompt. Some providers can also be asked for a JSON
+    object, but nothing here enforces the schema until the reply is validated.
     """
 
-    # Shared by all instances: the rate limit applies to the key, not to one object.
-    _next_start = 0.0
+    # The earliest start of the next request, per provider. Shared by all instances, because
+    # a rate limit applies to the account, not to one object.
+    _next_start: ClassVar[dict[str, float]] = {}
 
     def __init__(self, settings: Settings, http_client: httpx2.Client | None) -> None:
+        info = PROVIDERS[settings.provider]
+        self._name = settings.provider
+        self._info = info
         self._max_tokens = settings.max_tokens
-        per_minute = settings.nvidia_requests_per_minute
+        per_minute = settings.requests_per_minute
         self._interval = 60 / per_minute if per_minute else 0.0
+        if info.key_field is None:
+            key = "unused"  # a local server ignores the key, but the SDK insists on one
+        else:
+            key = _require(getattr(settings, info.key_field), info.key_field.upper())
+        # The address is fixed per provider, so a setting cannot send a key somewhere else.
         self._client = openai.OpenAI(
-            api_key=_require(settings.nvidia_api_key, "NVIDIA_API_KEY"),
-            base_url=NVIDIA_BASE_URL,
+            api_key=key,
+            base_url=info.base_url,
             timeout=settings.timeout_seconds,
             max_retries=settings.max_retries,
             http_client=http_client,
@@ -164,34 +171,38 @@ class NvidiaBackend:
     def wait_for_turn(self) -> None:
         if not self._interval:
             return
-        delay = NvidiaBackend._next_start - time.monotonic()
+        delay = self._next_start.get(self._name, 0.0) - time.monotonic()
         if delay > 0:
             time.sleep(delay)
-        NvidiaBackend._next_start = time.monotonic() + self._interval
+        self._next_start[self._name] = time.monotonic() + self._interval
 
     def send(self, prompt: Prompt) -> Reply:
         system = (
             f"{prompt.system}\n\nReply with only one JSON object, and no other text, that "
             f"matches this JSON schema:\n{json.dumps(prompt.schema)}"
         )
+        request: dict[str, Any] = {
+            "model": prompt.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt.user},
+            ],
+            self._info.token_limit_field: self._max_tokens,
+            "stream": False,  # some providers stream unless told otherwise
+        }
+        if self._info.json_mode:
+            request["response_format"] = {"type": "json_object"}
         try:
-            response = self._client.chat.completions.create(
-                model=prompt.model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": prompt.user},
-                ],
-                max_tokens=self._max_tokens,
-                stream=False,  # NVIDIA streams unless told otherwise
-            )
+            response = self._client.chat.completions.create(**request)
         except openai.APIError as error:
+            hint = " Is the Ollama server running?" if self._info.key_field is None else ""
             raise LLMError(
-                f"NVIDIA API request failed: {error.message}",
+                f"{self._name} API request failed: {error.message}{hint}",
                 status="api_error",
                 request_id=getattr(error, "request_id", None),
             ) from error
         if not response.choices:
-            raise LLMError("NVIDIA API returned no reply", status="api_error")
+            raise LLMError(f"{self._name} API returned no reply", status="api_error")
 
         choice = response.choices[0]
         statuses = {"length": "max_tokens", "content_filter": "refusal"}

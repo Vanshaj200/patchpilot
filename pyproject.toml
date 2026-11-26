@@ -5,12 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "patchpilot"
 dynamic = ["version"]
-description = "Review a git diff with the Claude API and generate pytest tests for the changed code."
+description = "Review a git diff with a language model and generate pytest tests for the changed code."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=2.14,<3",
     "httpx2>=2.16,<3",
+    "openai>=3.60,<4",  # client for NVIDIA's OpenAI-compatible API
     "pydantic>=2.14,<3",
     "pydantic-settings>=2.16,<3",
     "pytest>=9,<10",  # runs the generated tests

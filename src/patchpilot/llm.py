@@ -1,49 +1,30 @@
-"""Claude API wrapper: one structured-output request with caching, retries and validation."""
+"""One structured-output request to a model, with caching, validation and logging."""
 
 import logging
 import time
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import TypeVar
 
 import anthropic
 import httpx2
-from anthropic.types.beta import BetaMessage
 from pydantic import BaseModel, ValidationError
 
-from patchpilot.cache import ResponseCache, text_block
+from patchpilot.cache import ResponseCache
 from patchpilot.config import Settings
-from patchpilot.cost import TokenUsage, cost_usd
+from patchpilot.cost import cost_usd
+from patchpilot.providers import LLMError, Prompt, Reply, create_backend
 from patchpilot.store import RequestRecord
+
+__all__ = ["LLMClient", "LLMError", "Recorder"]
 
 logger = logging.getLogger(__name__)
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 Recorder = Callable[[RequestRecord], None]
 
-# These models accept server-side refusal fallbacks: if a safety check declines a request
-# (possible when reviewing security-related code), the API reruns it on another model.
-_FALLBACK_MODELS = frozenset(
-    {
-        "claude-opus-5-5",
-        "claude-opus-5",
-        "claude-sonnet-5-5",
-        "claude-fable-5-2",
-        "claude-fable-5-1",
-    }
-)
-_FALLBACK_BETA = "server-side-fallback-2026-07-01"
-
-
-class LLMError(Exception):
-    """A request failed or returned something unusable. `status` is stored in the usage log."""
-
-    def __init__(self, message: str, status: str = "error") -> None:
-        super().__init__(message)
-        self.status = status
-
 
 class LLMClient:
-    """Sends prompts to Claude and returns replies validated against a pydantic model."""
+    """Sends prompts to a model and returns replies validated against a pydantic model."""
 
     def __init__(
         self,
@@ -51,20 +32,11 @@ class LLMClient:
         on_request: Recorder,
         http_client: httpx2.Client | None = None,
     ) -> None:
-        if settings.api_key is None or not settings.api_key.get_secret_value():
-            raise LLMError("ANTHROPIC_API_KEY is not set")
         self._settings = settings
+        self._backend = create_backend(settings, http_client)
         # A callback, so the CLI can write to SQLite and the eval can collect in memory.
         self._on_request = on_request
         self._cache = ResponseCache(settings.cache_dir) if settings.response_cache else None
-        # The SDK retries connection errors, timeouts, rate limits and server errors with
-        # backoff. A second retry loop here would multiply the number of attempts.
-        self._client = anthropic.Anthropic(
-            api_key=settings.api_key.get_secret_value(),
-            timeout=settings.timeout_seconds,
-            max_retries=settings.max_retries,
-            http_client=http_client,
-        )
 
     def complete(
         self,
@@ -83,17 +55,19 @@ class LLMClient:
                 f"{self._settings.max_prompt_chars} (PATCHPILOT_MAX_PROMPT_CHARS)"
             )
         model = model or self._settings.model
-        json_schema = anthropic.transform_schema(schema)
+        # A plain function that makes a pydantic schema strict; it sends nothing to Anthropic.
+        prompt = Prompt(model, system, user, anthropic.transform_schema(schema))
         # The key covers everything that shapes a reply, so a changed diff, prompt or model
         # can never be answered with an old result.
         key = ResponseCache.key(
             {
+                "provider": self._settings.provider,
                 "model": model,
                 "effort": self._settings.effort,
                 "max_tokens": self._settings.max_tokens,
                 "system": system,
                 "user": user,
-                "schema": json_schema,
+                "schema": prompt.schema,
             }
         )
         started = time.perf_counter()
@@ -107,45 +81,36 @@ class LLMClient:
             )
             return cached
 
-        use_prompt_cache = self._settings.prompt_cache
-        cache_user = use_prompt_cache and self._settings.cache_file_context
-        request: dict[str, Any] = {
-            "model": model,
-            "max_tokens": self._settings.max_tokens,
-            "system": [text_block(system, use_prompt_cache)],
-            "messages": [{"role": "user", "content": [text_block(user, cache_user)]}],
-            "output_config": {
-                "effort": self._settings.effort,
-                "format": {"type": "json_schema", "schema": json_schema},
-            },
-        }
-        if model in _FALLBACK_MODELS:
-            request |= {"betas": [_FALLBACK_BETA], "fallbacks": "default"}
-
         # Source code reaches the log only when --debug attaches a handler.
         logger.debug("request to %s\nsystem:\n%s\nuser:\n%s", model, system, user)
+        self._backend.wait_for_turn()
         started = time.perf_counter()
         try:
-            response = self._client.beta.messages.create(**request)
-        except anthropic.APIError as error:
+            reply = self._backend.send(prompt)
+        except LLMError as error:
             # No reply means no token counts, so the cost is unknown.
-            request_id = getattr(error, "request_id", None) or "unknown"
             latency = time.perf_counter() - started
             self._on_request(
                 _record_without_usage(
-                    request_id, feature, model, "api_error", None, latency, tokens_saved
+                    error.request_id or "unknown",
+                    feature,
+                    model,
+                    error.status,
+                    None,
+                    latency,
+                    tokens_saved,
                 )
             )
-            raise LLMError(f"Claude API request failed: {error.message}") from error
+            raise
         latency = time.perf_counter() - started
 
         # Log before raising: a refused or cut-off reply still costs money.
         try:
-            result = _read_reply(response, schema)
+            result = _read_reply(reply, schema)
         except LLMError as error:
-            self._on_request(self._record(response, feature, error.status, latency, tokens_saved))
+            self._on_request(self._record(reply, feature, error.status, latency, tokens_saved))
             raise
-        self._on_request(self._record(response, feature, "ok", latency, tokens_saved))
+        self._on_request(self._record(reply, feature, "ok", latency, tokens_saved))
         if self._cache is not None:
             self._cache.put(key, result.model_dump_json())
         return result
@@ -164,26 +129,26 @@ class LLMClient:
 
     def _record(
         self,
-        response: BetaMessage,
+        reply: Reply,
         feature: str,
         status: str,
         latency: float,
         tokens_saved: int | None,
     ) -> RequestRecord:
-        attempts = _attempts(response)
-        costs = [cost_usd(model, usage, self._settings.prices) for model, usage in attempts]
+        usages = [usage for _, usage in reply.attempts]
+        costs = [cost_usd(model, usage, self._settings.prices) for model, usage in reply.attempts]
         known = [cost for cost in costs if cost is not None]
         return RequestRecord(
-            request_id=response._request_id or response.id,
+            request_id=reply.request_id,
             feature=feature,
-            model=response.model,
+            model=reply.model,
             status=status,
-            input_tokens=sum(usage.input_tokens for _, usage in attempts),
-            output_tokens=sum(usage.output_tokens for _, usage in attempts),
-            cache_write_tokens=sum(usage.cache_write_tokens for _, usage in attempts),
-            cache_read_tokens=sum(usage.cache_read_tokens for _, usage in attempts),
-            # One unpriced attempt makes the total unknown.
-            cost_usd=sum(known) if len(known) == len(costs) else None,
+            input_tokens=sum(usage.input_tokens for usage in usages),
+            output_tokens=sum(usage.output_tokens for usage in usages),
+            cache_write_tokens=sum(usage.cache_write_tokens for usage in usages),
+            cache_read_tokens=sum(usage.cache_read_tokens for usage in usages),
+            # No token counts, or one unpriced attempt, makes the total unknown.
+            cost_usd=sum(known) if costs and len(known) == len(costs) else None,
             latency_seconds=latency,
             tokens_saved=tokens_saved,
         )
@@ -214,37 +179,14 @@ def _record_without_usage(
     )
 
 
-def _attempts(response: BetaMessage) -> list[tuple[str, TokenUsage]]:
-    """List every model attempt behind a reply with its token counts.
-
-    After a refusal fallback, `usage.iterations` has one entry per model that ran, while the
-    top-level usage covers only the last one.
-    """
-    entries = response.usage.iterations or [response.usage]
-    return [
-        (
-            getattr(entry, "model", None) or response.model,
-            TokenUsage(
-                input_tokens=entry.input_tokens,
-                output_tokens=entry.output_tokens,
-                cache_write_tokens=entry.cache_creation_input_tokens or 0,
-                cache_read_tokens=entry.cache_read_input_tokens or 0,
-            ),
-        )
-        for entry in entries
-    ]
-
-
-def _read_reply(response: BetaMessage, schema: type[SchemaT]) -> SchemaT:
-    text = "".join(block.text for block in response.content if block.type == "text")
-    logger.debug("response (stop_reason=%s):\n%s", response.stop_reason, text)
-    if response.stop_reason == "refusal":
-        raise LLMError("Claude declined to answer this request", status="refusal")
-    if response.stop_reason == "max_tokens":
+def _read_reply(reply: Reply, schema: type[SchemaT]) -> SchemaT:
+    logger.debug("reply (status=%s):\n%s", reply.status, reply.text)
+    if reply.status == "refusal":
+        raise LLMError("the model declined to answer this request", status="refusal")
+    if reply.status == "max_tokens":
         raise LLMError("the reply was cut off; raise PATCHPILOT_MAX_TOKENS", status="max_tokens")
-    # Validate here, not with messages.parse(), so the response is kept if validation fails.
     try:
-        return schema.model_validate_json(text)
+        return schema.model_validate_json(reply.text)
     except ValidationError as error:
         raise LLMError(
             f"the reply did not match the expected JSON structure "

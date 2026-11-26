@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,15 +39,27 @@ PRICES: dict[str, ModelPrice] = {
 }
 
 
+# The large and small model used when none is named.
+DEFAULT_MODELS: dict[str, tuple[str, str]] = {
+    "anthropic": ("claude-opus-5-5", "claude-haiku-5-5"),
+    "nvidia": ("nvidia/nemotron-3-ultra-550b-a55b", "nvidia/nemotron-3.5-lightning-30b-a3b"),
+}
+
+
 class Settings(BaseSettings):
-    """Each field is set by PATCHPILOT_<NAME>, except the API key. Real variables beat .env."""
+    """Each field is set by PATCHPILOT_<NAME>, except the API keys. Real variables beat .env."""
 
     model_config = SettingsConfigDict(env_prefix="PATCHPILOT_", env_file=".env", extra="ignore")
 
     # SecretStr prints as "**********", so the key cannot leak through logs or error messages.
     api_key: SecretStr | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
-    model: str = "claude-opus-5-5"  # the large model
-    small_model: str = "claude-haiku-5-5"
+    nvidia_api_key: SecretStr | None = Field(default=None, validation_alias="NVIDIA_API_KEY")
+    provider: Literal["anthropic", "nvidia"] = "anthropic"
+    # An empty name means the provider's default from DEFAULT_MODELS.
+    model: str = ""  # the large model
+    small_model: str = ""
+    # Spaces out NVIDIA requests; 0 switches this off. Check your account's real limit.
+    nvidia_requests_per_minute: int = Field(default=40, ge=0)
     # Routing sends a change to the small model only if it passes all three rules.
     routing: bool = True
     route_max_files: int = Field(default=1, ge=0)
@@ -75,3 +87,10 @@ class Settings(BaseSettings):
     db_path: Path = Path(".patchpilot/usage.db")
     # Override the whole table with JSON in PATCHPILOT_PRICES.
     prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(PRICES))
+
+    @model_validator(mode="after")
+    def use_default_models(self) -> "Settings":
+        large, small = DEFAULT_MODELS[self.provider]
+        self.model = self.model or large
+        self.small_model = self.small_model or small
+        return self

@@ -47,7 +47,7 @@ flowchart LR
 | `cost.py`, `store.py` | Price calculation and the SQLite request log |
 | `runner.py` | Runs a test file on a temporary copy of the code and judges the results |
 | `evaluation.py` | The seeded-bug evaluation |
-| `web.py`, `static/` | The local web page |
+| `web.py`, `static/` | The local web page and its in-browser test runner |
 | `cli.py`, `config.py` | Commands and settings |
 
 ## Install
@@ -145,9 +145,17 @@ Then open <http://127.0.0.1:8000>.
 - **Model:** leave it empty to let the routing rules choose, or type any model name.
 - **API key:** a typed key is used for that request and not stored. If the field is empty, a key
   saved in your environment or `.env` is used.
-- **Actions:** review code or a diff; generate tests for pasted Python code. The page never runs
-  code.
+- **Actions:** review code or a diff; generate tests for pasted Python code; run tests.
+- **Run tests:** write or paste pytest tests (generated ones appear in the box) and run them
+  against the pasted code, which they import as `snippet`. No API key is needed.
 - **Privacy:** only token counts and costs are logged. The reply cache is off for web requests.
+
+Tests run inside the browser on [Pyodide](https://pyodide.org), Python compiled to WebAssembly,
+not on your computer's Python. The worker that runs them cannot read your files, and its content
+policy lets it connect only to the Pyodide download address, so code under test cannot call this
+app or send data elsewhere. A run is stopped after 30 seconds. The first run needs an internet
+connection to download Python from cdn.jsdelivr.net. Programs that need processes, threads,
+sockets or packages other than pytest will not work there.
 
 It is a local tool, not a hosted service: it accepts connections from your computer only and has
 no accounts or login. Putting it on the internet would need those, plus HTTPS and rate limits.

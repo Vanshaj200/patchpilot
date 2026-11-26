@@ -49,6 +49,7 @@ flowchart LR
 | `evaluation.py` | The seeded-bug evaluation |
 | `web.py`, `static/` | The web page and its in-browser test runner |
 | `ratelimit.py` | Request limits for the hosted page |
+| `app.py` (repository root) | Entry point for Vercel |
 | `cli.py`, `config.py` | Commands and settings |
 
 ## Install
@@ -161,6 +162,44 @@ sockets or packages other than pytest will not work there.
 `patchpilot web` is for your computer only. To put the page on the internet, use hosted mode
 below.
 
+### How your API key is handled
+
+**The app never writes a key typed into the web page to disk or to its logs.** You can check each
+point in [web.py](src/patchpilot/web.py), [app.js](src/patchpilot/static/app.js) and
+[test_web.py](tests/test_web.py).
+
+| Where | What happens | Test that checks it |
+|---|---|---|
+| Browser | Held in a password field only: no cookies or local storage. Cleared when you change provider | none (browser code) |
+| Network | Sent to this app, which sends it only to the chosen provider's fixed address | `test_typed_key_and_model_go_to_the_chosen_provider` |
+| Server | Used for one request and not saved. The hosted app writes no files | `test_hosted_review_uses_only_the_visitors_key_and_stores_nothing` |
+| Logs | Not logged, even with every library at debug level | `test_a_visitors_key_is_never_logged_or_stored` |
+| Replies | Replaced with `***` in error messages; invalid input is not repeated | `test_api_errors_do_not_repeat_the_key`, `test_invalid_input_is_rejected_without_repeating_it` |
+| Bad input | Keys with spaces or unusual characters are refused before use | `test_malformed_keys_are_refused_without_being_repeated` |
+
+What this cannot promise: the hosting company runs the machine, whoever controls the server could
+change the code, and the provider receives the key. Use a key with a spending limit that you can
+revoke. On your own computer, `patchpilot web` also uses a key saved in `.env` if the field is
+empty.
+
+### Deploy to Vercel
+
+[app.py](app.py) and [vercel.json](vercel.json) run the same hosted mode as a Vercel Function in
+Singapore:
+
+```sh
+vercel deploy --prod
+```
+
+Differences from Render:
+
+- No long sleep: a function starts when a request arrives.
+- Each request may run for 150 seconds.
+- The rate limit is counted separately by each running instance and resets when one stops, so it
+  is weaker. Vercel overwrites the visitor's address header, so visitors cannot fake it.
+- Static files are served by the app rather than the CDN (`cdn = false` in
+  [pyproject.toml](pyproject.toml)). This keeps the policy that stops test code calling the app.
+
 ### Deploy to Render
 
 [render.yaml](render.yaml) and [Dockerfile.web](Dockerfile.web) run `patchpilot serve`, the hosted
@@ -186,7 +225,7 @@ commits to `main` deploy automatically once CI passes.
 Things to know:
 
 - A free service [sleeps after 15 idle minutes](https://render.com/docs/free) and takes about a
-  minute to wake.
+  minute to wake. Share the Vercel address if a first visit must be quick.
 - Visitors' keys and code pass through your server. The app does not store them, and the page says
   so, but you are responsible for the server.
 - There are no accounts. The rate limit is held in memory and reads the visitor's address from a
@@ -265,8 +304,24 @@ Raw results are saved in `eval/results/`.
 ### Results
 
 <!-- eval:start -->
-No real evaluation has been run yet. Running the command above with `--readme README.md` replaces
-this text with the measured table.
+**Two-case trial, not a benchmark.** The full 26-case evaluation has not been run, and two cases
+are too few to compare the setups. Cost is unknown because PatchPilot has no Groq prices. The
+cached input in the baseline was reported by Groq; PatchPilot's caching markers apply to Claude
+only. [Raw data](eval/results/20261126-185934.json).
+
+Run (UTC): 2026-11-26 18:59, PatchPilot: 0.1.0, provider: groq, large model: openai/gpt-oss-120b, small model: openai/gpt-oss-20b, prompt: v2, effort: medium
+
+| Configuration | Cases | Caught by review | Caught by tests | Caught (either) | Input tokens | Cached input | Output tokens | Total cost (USD) | Cost per caught bug (USD) | API time (s) | Errors |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 2 | 2 | 2 | 2 | 1904 | 256 | 2289 | unknown | n/a | 6.5 | 0 |
+| optimised | 2 | 2 | 2 | 2 | 1904 | 0 | 2879 | unknown | n/a | 4.7 | 0 |
+
+Each cell below shows review / tests.
+
+| Case | Bug type | baseline | optimised |
+|---|---|---|---|
+| 01_pagination | off-by-one | yes / yes | yes / yes |
+| 02_discount | wrong operator | yes / yes | yes / yes |
 <!-- eval:end -->
 
 ## Safety

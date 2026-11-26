@@ -1,5 +1,6 @@
 """Settings read from environment variables and an optional .env file, and the price table."""
 
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -45,7 +46,22 @@ class Settings(BaseSettings):
 
     # SecretStr prints as "**********", so the key cannot leak through logs or error messages.
     api_key: SecretStr | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
-    model: str = "claude-opus-5-5"
+    model: str = "claude-opus-5-5"  # the large model
+    small_model: str = "claude-haiku-5-5"
+    # Routing sends a change to the small model only if it passes all three rules.
+    routing: bool = True
+    route_max_files: int = Field(default=1, ge=0)
+    route_max_changed_lines: int = Field(default=20, ge=0)
+    route_risky_pattern: re.Pattern[str] = re.compile(
+        r"(?i)password|secret|token|\bauth|crypt|sql|execute|subprocess|eval\(|exec\(|pickle"
+        r"|thread|async"
+    )
+    # Prompt caching marks the system prompt. Marking the diff too costs 25% more on those
+    # tokens and only pays off if the identical diff is sent again within five minutes.
+    prompt_cache: bool = True
+    cache_file_context: bool = False
+    response_cache: bool = True
+    cache_dir: Path = Path(".patchpilot/cache")
     effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
     # Upper limit on the reply, including the model's thinking.
     max_tokens: int = Field(default=16_000, gt=0)

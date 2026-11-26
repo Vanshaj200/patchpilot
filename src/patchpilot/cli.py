@@ -34,6 +34,21 @@ RepoOption = Annotated[
     typer.Option(exists=True, file_okay=False, help="Checkout that already contains the change."),
 ]
 PromptOption = Annotated[str | None, typer.Option(help="Prompt version: v1 or v2.")]
+# None means "not given", so the environment setting applies.
+RoutingOption = Annotated[
+    bool | None,
+    typer.Option("--routing/--no-routing", help="Send trivial diffs to the small model."),
+]
+PromptCacheOption = Annotated[
+    bool | None,
+    typer.Option("--prompt-cache/--no-prompt-cache", help="Use Anthropic prompt caching."),
+]
+ResponseCacheOption = Annotated[
+    bool | None,
+    typer.Option(
+        "--response-cache/--no-response-cache", help="Reuse local replies to identical requests."
+    ),
+]
 DebugOption = Annotated[
     bool,
     typer.Option("--debug", help=f"Write prompts and replies, including code, to {DEBUG_LOG}."),
@@ -50,15 +65,23 @@ def review(
     diff_file: DiffFile,
     repo: RepoOption = Path("."),
     prompt_version: PromptOption = None,
+    routing: RoutingOption = None,
+    prompt_cache: PromptCacheOption = None,
+    response_cache: ResponseCacheOption = None,
     debug: DebugOption = False,
 ) -> None:
     """Print review comments for a diff as JSON."""
     if debug:
         _enable_debug_log()
     with _report_errors():
-        settings = _load_settings(prompt_version=prompt_version)
+        settings = _load_settings(
+            prompt_version=prompt_version,
+            routing=routing,
+            prompt_cache=prompt_cache,
+            response_cache=response_cache,
+        )
         files = _read_diff(diff_file)
-        result = review_diff(files, _client(settings), settings.prompt_version, repo)
+        result = review_diff(files, _client(settings), settings, repo)
     # json.dumps escapes non-ASCII text, so output is safe on any console encoding.
     typer.echo(json.dumps(result.model_dump(mode="json"), indent=2))
 
@@ -71,15 +94,23 @@ def gentests(
         "patchpilot_tests.py"
     ),
     prompt_version: PromptOption = None,
+    routing: RoutingOption = None,
+    prompt_cache: PromptCacheOption = None,
+    response_cache: ResponseCacheOption = None,
     debug: DebugOption = False,
 ) -> None:
     """Write pytest tests for the changed Python functions. They are not run."""
     if debug:
         _enable_debug_log()
     with _report_errors():
-        settings = _load_settings(prompt_version=prompt_version)
+        settings = _load_settings(
+            prompt_version=prompt_version,
+            routing=routing,
+            prompt_cache=prompt_cache,
+            response_cache=response_cache,
+        )
         files = _read_diff(diff_file)
-        code = generate_tests(files, repo, _client(settings), settings.prompt_version)
+        code = generate_tests(files, repo, _client(settings), settings)
         if code is not None:
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(code, encoding="utf-8")
@@ -150,10 +181,11 @@ def _client(settings: Settings) -> LLMClient:
 
 
 def _format_report(rows: Sequence[SummaryRow]) -> str:
-    header = ["Feature", "Model", "Requests", "Input", "Output", "Cache write", "Cache read"]
+    header = ["Feature", "Model", "Requests", "Cache hits", "Input", "Output"]
+    header += ["Cache write", "Cache read"]
     table = [[*header, "Cost (USD)"]]
     for row in rows:
-        counts = [row.requests, row.input_tokens, row.output_tokens]
+        counts = [row.requests, row.cache_hits, row.input_tokens, row.output_tokens]
         counts += [row.cache_write_tokens, row.cache_read_tokens]
         table.append([row.feature, row.model, *map(str, counts), f"{row.cost_usd:.6f}"])
     totals = [sum(int(line[column]) for line in table[1:]) for column in range(2, len(header))]
@@ -176,7 +208,7 @@ def _format_report(rows: Sequence[SummaryRow]) -> str:
     return "\n".join(lines)
 
 
-def _load_settings(**overrides: str | None) -> Settings:
+def _load_settings(**overrides: str | bool | None) -> Settings:
     """Command-line options win over the environment; options left unset do not."""
     given = {name: value for name, value in overrides.items() if value is not None}
     return Settings(**given)

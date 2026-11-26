@@ -15,6 +15,9 @@ dist/
 .pytest_cache/
 .ruff_cache/
 
+# PatchPilot's usage log and response cache
+.patchpilot/
+
 # Local usage databases and debug logs (debug logs contain source code)
 *.db
 *.log

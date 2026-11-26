@@ -212,6 +212,94 @@ def test_api_error_is_recorded_once_with_unknown_cost(api: FakeAPI) -> None:
     assert (record.status, record.input_tokens, record.cost_usd) == ("api_error", 0, None)
 
 
+def test_identical_request_is_answered_from_the_cache(api: FakeAPI) -> None:
+    api.responses = [reply({"comments": [COMMENT]})]
+    first = ask(api.llm())
+
+    second = ask(api.llm())
+
+    assert second == first
+    assert len(api.requests) == 1
+    hit = api.records[1]
+    assert (hit.status, hit.input_tokens, hit.cost_usd) == ("cache_hit", 0, 0.0)
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [{"model": "claude-haiku-5-5"}, {"effort": "high"}, {"max_tokens": 99}],
+)
+def test_changed_settings_miss_the_cache(api: FakeAPI, settings: dict[str, object]) -> None:
+    ask(api.llm())
+
+    ask(api.llm(Settings(ANTHROPIC_API_KEY="k", **settings)))
+
+    assert len(api.requests) == 2
+
+
+def test_changed_prompt_misses_the_cache(api: FakeAPI) -> None:
+    llm = api.llm()
+    ask(llm, user="one")
+    ask(llm, user="two")
+
+    assert len(api.requests) == 2
+
+
+def test_response_cache_can_be_switched_off(api: FakeAPI) -> None:
+    llm = api.llm(Settings(ANTHROPIC_API_KEY="k", response_cache=False))
+    ask(llm)
+    ask(llm)
+
+    assert len(api.requests) == 2
+    assert not Settings().cache_dir.exists()
+
+
+def test_failed_replies_are_not_cached(api: FakeAPI) -> None:
+    api.responses = [reply("not json"), reply()]
+    llm = api.llm()
+    with pytest.raises(LLMError):
+        ask(llm)
+
+    ask(llm)
+
+    assert len(api.requests) == 2
+
+
+def test_damaged_cache_entry_is_ignored(api: FakeAPI) -> None:
+    llm = api.llm()
+    ask(llm)
+    next(Settings().cache_dir.iterdir()).write_text("{broken")
+
+    ask(llm)
+
+    assert len(api.requests) == 2
+
+
+@pytest.mark.parametrize(
+    ("settings", "system_marked", "user_marked"),
+    [
+        ({}, True, False),
+        ({"cache_file_context": True}, True, True),
+        ({"prompt_cache": False, "cache_file_context": True}, False, False),
+    ],
+)
+def test_prompt_cache_markers(
+    api: FakeAPI, settings: dict[str, bool], system_marked: bool, user_marked: bool
+) -> None:
+    ask(api.llm(Settings(ANTHROPIC_API_KEY="k", **settings)))
+
+    body = api.sent_body()
+    assert ("cache_control" in body["system"][0]) is system_marked
+    assert ("cache_control" in body["messages"][0]["content"][0]) is user_marked
+
+
+def test_model_can_be_chosen_per_request(api: FakeAPI) -> None:
+    api.llm().complete(
+        system="s", user="u", schema=Review, feature="review", model="claude-haiku-5-5"
+    )
+
+    assert api.sent_body()["model"] == "claude-haiku-5-5"
+
+
 def test_nothing_is_logged_without_debug_level(
     api: FakeAPI, caplog: pytest.LogCaptureFixture
 ) -> None:

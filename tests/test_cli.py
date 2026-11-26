@@ -50,7 +50,7 @@ def test_prompt_version_option(fake_cli: FakeAPI, tmp_path: Path) -> None:
     result = runner.invoke(cli.app, ["review", write_diff(tmp_path), "--prompt-version", "v1"])
 
     assert result.exit_code == 0
-    assert str(fake_cli.sent_body()["system"]).startswith("You are a code reviewer")
+    assert "You are a code reviewer" in str(fake_cli.sent_body()["system"])
 
 
 def test_debug_writes_a_log(fake_cli: FakeAPI, tmp_path: Path) -> None:
@@ -88,15 +88,16 @@ def test_missing_api_key_is_explained(tmp_path: Path) -> None:
 
 def test_report_totals_logged_requests(fake_cli: FakeAPI, tmp_path: Path) -> None:
     diff = write_diff(tmp_path)
-    runner.invoke(cli.app, ["review", diff])
-    runner.invoke(cli.app, ["review", diff])
+    arguments = ["review", diff, "--no-routing", "--no-response-cache"]
+    runner.invoke(cli.app, arguments)
+    runner.invoke(cli.app, arguments)
 
     result = runner.invoke(cli.app, ["report"])
 
     assert result.exit_code == 0
     total = next(line for line in result.stdout.splitlines() if line.startswith("Total"))
     # Two requests of 100 input and 20 output tokens at $4 and $20 per million.
-    assert total.split() == ["Total", "2", "200", "40", "0", "0", "0.001600"]
+    assert total.split() == ["Total", "2", "0", "200", "40", "0", "0", "0.001600"]
     assert "no known cost" not in result.stdout
 
 
@@ -107,6 +108,39 @@ def test_report_mentions_unknown_costs(fake_cli: FakeAPI, tmp_path: Path) -> Non
     result = runner.invoke(cli.app, ["report"])
 
     assert "1 requests have no known cost" in result.stdout
+
+
+def test_cache_flags(fake_cli: FakeAPI, tmp_path: Path) -> None:
+    diff = write_diff(tmp_path)
+    runner.invoke(cli.app, ["review", diff])
+    runner.invoke(cli.app, ["review", diff])
+    assert len(fake_cli.requests) == 1
+
+    runner.invoke(cli.app, ["review", diff, "--no-response-cache", "--no-prompt-cache"])
+
+    assert len(fake_cli.requests) == 2
+    assert "cache_control" not in fake_cli.requests[1].content.decode()
+
+
+@pytest.mark.parametrize(
+    ("flag", "model"),
+    [("--routing", "claude-haiku-5-5"), ("--no-routing", "claude-opus-5-5")],
+)
+def test_routing_flag(fake_cli: FakeAPI, tmp_path: Path, flag: str, model: str) -> None:
+    result = runner.invoke(cli.app, ["review", write_diff(tmp_path), flag])
+
+    assert result.exit_code == 0
+    assert fake_cli.sent_body()["model"] == model
+
+
+def test_flag_left_out_keeps_the_environment_setting(
+    fake_cli: FakeAPI, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("PATCHPILOT_ROUTING", "false")
+
+    runner.invoke(cli.app, ["review", write_diff(tmp_path)])
+
+    assert fake_cli.sent_body()["model"] == "claude-opus-5-5"
 
 
 def test_report_without_data() -> None:

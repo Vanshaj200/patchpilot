@@ -7,10 +7,12 @@ from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from patchpilot.config import Settings
 from patchpilot.cost import estimate_tokens
 from patchpilot.diff import ChangedFile, LineKind, read_new_version
 from patchpilot.llm import LLMClient
 from patchpilot.prompts import GENTESTS_PROMPTS, TestTarget, render_targets
+from patchpilot.router import choose_model
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +39,11 @@ class GeneratedTests(BaseModel):
 
 
 def generate_tests(
-    files: Sequence[ChangedFile], repo: Path, llm: LLMClient, prompt_version: str
+    files: Sequence[ChangedFile], repo: Path, llm: LLMClient, settings: Settings
 ) -> str | None:
     """Return a pytest module for the changed functions, or None if there are none."""
     targets: list[TestTarget] = []
+    target_files: list[ChangedFile] = []
     full_texts: list[str] = []
     for changed in files:
         source = read_new_version(changed, repo)
@@ -49,6 +52,7 @@ def generate_tests(
         target = find_target(changed, source)
         if target is not None:
             targets.append(target)
+            target_files.append(changed)
             full_texts.append(source)
     if not targets:
         return None
@@ -56,10 +60,11 @@ def generate_tests(
     prompt = render_targets(targets)
     tokens_saved = estimate_tokens("\n".join(full_texts)) - estimate_tokens(prompt)
     generated = llm.complete(
-        system=GENTESTS_PROMPTS[prompt_version],
+        system=GENTESTS_PROMPTS[settings.prompt_version],
         user=prompt,
         schema=GeneratedTests,
         feature="gentests",
+        model=choose_model(target_files, settings).model,
         tokens_saved=tokens_saved,
     )
     return generated.test_code

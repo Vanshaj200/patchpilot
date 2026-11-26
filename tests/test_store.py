@@ -33,9 +33,17 @@ def test_summary_groups_by_feature_and_model(tmp_path: Path) -> None:
     store.add(replace(RECORD, feature="gentests", model="claude-haiku-5-5"))
 
     assert store.summary() == [
-        SummaryRow("gentests", "claude-haiku-5-5", 1, 100, 20, 5, 7, 0.5, 0, 40),
-        SummaryRow("review", "claude-opus-5-5", 2, 200, 40, 10, 14, 0.5, 1, 40),
+        SummaryRow("gentests", "claude-haiku-5-5", 1, 0, 100, 20, 5, 7, 0.5, 0, 40),
+        SummaryRow("review", "claude-opus-5-5", 2, 0, 200, 40, 10, 14, 0.5, 1, 40),
     ]
+
+
+def test_summary_counts_local_cache_hits(tmp_path: Path) -> None:
+    store = UsageStore(tmp_path / "usage.db")
+    store.add(RECORD)
+    store.add(replace(RECORD, status="cache_hit"))
+
+    assert store.summary()[0].cache_hits == 1
 
 
 def test_data_survives_reopening(tmp_path: Path) -> None:

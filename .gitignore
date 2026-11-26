@@ -1,0 +1,22 @@
+# Secrets
+.env
+
+# Virtual environment
+.venv/
+
+# Python build and cache output
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+
+# Local usage databases
+*.db
+
+# Local assistant settings
+.claude/

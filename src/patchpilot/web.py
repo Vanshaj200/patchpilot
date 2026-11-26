@@ -1,7 +1,8 @@
 """A local web page for reviewing code with a model and API key of your choice.
 
-It accepts connections from this computer only. It never runs code and never reads files named
-in a pasted diff. A key typed into the page is used for that request and is not stored.
+It accepts connections from this computer only. The server never runs code (tests run inside the
+browser) and never reads files named in a pasted diff. A key typed into the page is used for that
+request and is not stored.
 """
 
 import tempfile
@@ -29,6 +30,14 @@ SNIPPET = "snippet.py"  # the file name given to pasted Python code
 LOCAL_HOSTS = ["127.0.0.1", "localhost"]
 # The page may load only its own files, and no other site may put it in a frame.
 CONTENT_POLICY = "default-src 'self'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'"
+# The test worker runs untrusted code. It may load and contact the Pyodide download address and
+# nothing else, which in particular excludes this server.
+PYODIDE_SOURCE = "https://cdn.jsdelivr.net/pyodide/v314.0.8/full/"
+WORKER_PATH = "/static/runner.js"
+WORKER_POLICY = (
+    f"default-src 'none'; script-src {PYODIDE_SOURCE} 'wasm-unsafe-eval'; "
+    f"connect-src {PYODIDE_SOURCE}; worker-src 'none'"
+)
 
 Action = Callable[[list[ChangedFile], LLMClient, Settings, Path], dict[str, object]]
 
@@ -60,7 +69,8 @@ def create_app(http_client: httpx2.Client | None = None) -> FastAPI:
         if request.method == "POST" and content_type != "application/json":
             return JSONResponse({"detail": "send JSON"}, status_code=415)
         response = await call_next(request)
-        response.headers["Content-Security-Policy"] = CONTENT_POLICY
+        is_worker = request.url.path == WORKER_PATH
+        response.headers["Content-Security-Policy"] = WORKER_POLICY if is_worker else CONTENT_POLICY
         response.headers["Cache-Control"] = "no-store"
         return response
 

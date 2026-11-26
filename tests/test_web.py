@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 
 from patchpilot import cli
 from patchpilot.config import PROVIDERS, Settings
-from patchpilot.web import create_app
+from patchpilot.web import PYODIDE_SOURCE, create_app
 
 CODE = "def total(items):\n    return sum(items[1:])\n"
 SNIPPET_COMMENT = {**COMMENT, "file": "snippet.py"}
@@ -40,6 +40,24 @@ def test_page_and_its_files_are_served(client: TestClient) -> None:
     assert "default-src 'self'" in page.headers["content-security-policy"]
     for name in ("app.js", "style.css"):
         assert client.get(f"/static/{name}").status_code == 200
+
+
+def test_test_worker_cannot_connect_to_this_server(client: TestClient) -> None:
+    policy = client.get("/static/runner.js").headers["content-security-policy"]
+
+    directives = dict(part.strip().split(" ", 1) for part in policy.split(";"))
+    assert directives["default-src"] == "'none'"
+    assert directives["worker-src"] == "'none'"
+    assert directives["connect-src"] == PYODIDE_SOURCE
+    assert "'self'" not in policy
+    assert "'unsafe-eval'" not in policy
+
+
+def test_worker_and_policy_use_the_same_python_version(client: TestClient) -> None:
+    worker = client.get("/static/runner.js").text
+
+    assert PYODIDE_SOURCE in worker
+    assert client.get("/static/harness.py").status_code == 200
 
 
 def test_page_has_no_inline_script_and_no_unsafe_html() -> None:

@@ -3,7 +3,11 @@
 "use strict";
 
 const byId = (id) => document.getElementById(id);
+const LOAD_LIMIT_SECONDS = 120; // downloading and starting Python
+const RUN_LIMIT_SECONDS = 30; // running the tests
 let providers = [];
+let waiting = false; // a model request is in progress
+let testing = false; // a test run is in progress
 
 async function callServer(path, body) {
   const options = body && {
@@ -56,10 +60,12 @@ function showProvider() {
   byId("key-help").textContent = help;
 }
 
-function updateButtons(busy = false) {
-  byId("review").disabled = busy;
-  // Tests need whole functions, which only pasted code provides.
-  byId("gentests").disabled = busy || chosenKind() !== "python";
+function updateButtons() {
+  const python = chosenKind() === "python";
+  byId("review").disabled = waiting;
+  // Writing and running tests need whole functions, which only pasted code provides.
+  byId("gentests").disabled = waiting || !python;
+  byId("run-tests").disabled = testing || !python;
 }
 
 function usageLine(usage) {
@@ -91,17 +97,9 @@ function showTests(data) {
   if (data.test_code === null) {
     return [element("p", "No Python functions were found, so no tests were written.")];
   }
-  const copy = element("button", "Copy tests");
-  copy.type = "button";
-  copy.addEventListener("click", async () => {
-    await navigator.clipboard.writeText(data.test_code);
-    copy.textContent = "Copied";
-  });
-  return [
-    element("p", "Read these before running them. They import the code as snippet.py."),
-    copy,
-    element("pre", data.test_code),
-  ];
+  // Put into the box, not run: you can read and change them first.
+  byId("tests").value = data.test_code;
+  return [element("p", "The tests are in the box below. Read them, then run them.")];
 }
 
 async function run(path, render) {
@@ -114,7 +112,8 @@ async function run(path, render) {
     showStatus("Enter an API key for this provider.", true);
     return;
   }
-  updateButtons(true);
+  waiting = true;
+  updateButtons();
   byId("results").replaceChildren();
   showStatus("Waiting for the model…");
   try {
@@ -131,8 +130,100 @@ async function run(path, render) {
   } catch (error) {
     showStatus(error.message, true);
   } finally {
-    updateButtons(false);
+    waiting = false;
+    updateButtons();
   }
+}
+
+function showTestStatus(message, isError = false) {
+  byId("test-status").textContent = message;
+  byId("test-status").className = isError ? "error" : "";
+}
+
+function showTestReport(report) {
+  const count = (outcome) => report.results.filter((r) => r.outcome === outcome).length;
+  const summary = ["passed", "failed", "error", "skipped"]
+    .filter(count)
+    .map((outcome) => `${count(outcome)} ${outcome}`)
+    .join(", ");
+  showTestStatus(summary || "No tests were found. Test names must start with test_.");
+
+  const list = element("ul");
+  for (const result of report.results) {
+    const item = element("li");
+    item.append(
+      element("span", result.outcome, `severity ${result.outcome}`),
+      element("strong", result.name),
+    );
+    if (result.message) item.append(element("pre", result.message));
+    list.append(item);
+  }
+  const details = element("details");
+  details.append(element("summary", "Full pytest output"), element("pre", report.output));
+  byId("test-results").replaceChildren(list, details);
+}
+
+async function runTests() {
+  const code = byId("text").value;
+  const tests = byId("tests").value;
+  if (!code.trim() || !tests.trim()) {
+    showTestStatus("Both the Python code and the tests are needed.", true);
+    return;
+  }
+  testing = true;
+  updateButtons();
+  byId("test-results").replaceChildren();
+  showTestStatus("Starting Python in the browser…");
+
+  let harness;
+  try {
+    const response = await fetch("/static/harness.py");
+    if (!response.ok) throw new Error(`status ${response.status}`);
+    harness = await response.text();
+  } catch (error) {
+    showTestStatus(`Could not load the test runner: ${error.message}`, true);
+    testing = false;
+    updateButtons();
+    return;
+  }
+
+  // A new worker for every run, so nothing is left over from the last one.
+  const worker = new Worker("/static/runner.js", { type: "module" });
+  let timer;
+  const finish = () => {
+    clearTimeout(timer);
+    // Stopping the worker is the only way to end an endless loop.
+    worker.terminate();
+    testing = false;
+    updateButtons();
+  };
+  const limit = (seconds, message) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      finish();
+      showTestStatus(message, true);
+    }, seconds * 1000);
+  };
+
+  worker.onmessage = (event) => {
+    if (event.data.type === "running") {
+      showTestStatus("Running the tests…");
+      limit(RUN_LIMIT_SECONDS, `Stopped: the tests ran for over ${RUN_LIMIT_SECONDS} seconds.`);
+      return;
+    }
+    finish();
+    if (event.data.type === "done") {
+      showTestReport(JSON.parse(event.data.report));
+    } else {
+      showTestStatus(`The tests could not run: ${event.data.message}`, true);
+    }
+  };
+  worker.onerror = () => {
+    finish();
+    showTestStatus("Python could not be loaded. Check your internet connection.", true);
+  };
+  limit(LOAD_LIMIT_SECONDS, "Stopped: Python took too long to download and start.");
+  worker.postMessage({ harness, code, tests });
 }
 
 async function start() {
@@ -141,6 +232,7 @@ async function start() {
     run("/api/review", showComments);
   });
   byId("gentests").addEventListener("click", () => run("/api/gentests", showTests));
+  byId("run-tests").addEventListener("click", runTests);
   byId("provider").addEventListener("change", showProvider);
   for (const radio of document.querySelectorAll("input[name=kind]")) {
     radio.addEventListener("change", () => updateButtons());

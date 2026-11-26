@@ -241,6 +241,7 @@ def evaluate(
             "small model": settings.small_model,
             "prompt": settings.prompt_version,
             "effort": settings.effort,
+            "prices (USD per million input/output tokens)": _price_note(settings),
         }
         stem = started.strftime("%Y%m%d-%H%M%S")
 
@@ -296,6 +297,16 @@ def _web_libraries() -> tuple[ModuleType, Callable[..., object]]:
         typer.echo('Install the web libraries first: pip install -e ".[web]"', err=True)
         raise typer.Exit(code=1) from error
     return uvicorn, create_app
+
+
+def _price_note(settings: Settings) -> str:
+    """Record which prices the costs were calculated from."""
+    priced = [
+        f"{name} {price.input:g}/{price.output:g}"
+        for name in dict.fromkeys((settings.model, settings.small_model))
+        if (price := settings.prices.get(name)) is not None
+    ]
+    return " and ".join(priced) or "none"
 
 
 @contextmanager

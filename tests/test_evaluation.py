@@ -4,6 +4,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+import httpx2
 import pytest
 from conftest import FakeAPI, reply
 
@@ -73,6 +74,32 @@ def test_scores_review_and_tests(api: FakeAPI) -> None:
     assert (score.comments, score.tests, score.bad_tests) == (1, 2, 1)
     assert (score.requests, score.input_tokens, score.output_tokens) == (2, 200, 40)
     assert score.cost_usd == pytest.approx(2 * (100 * 4 + 20 * 20) / 1e6)
+
+
+def test_the_models_work_is_saved_for_checking(api: FakeAPI) -> None:
+    api.responses = [reply({"comments": [comment(1), comment(2)]}), reply({"test_code": TESTS})]
+
+    score = evaluate_case(CASE, "baseline", SETTINGS, True, api.http_client())
+
+    assert [(note["line"], note["on_bug_line"]) for note in score.review_comments] == [
+        (1, False),
+        (2, True),
+    ]
+    assert score.review_comments[0]["message"] == "m"
+    assert score.test_code == TESTS
+    verdicts = {item["test"]: item["verdict"] for item in score.test_verdicts}
+    assert verdicts == {"test_add": "possible bug", "test_wrong_expectation": "bad test"}
+
+
+def test_account_names_are_removed_from_errors(api: FakeAPI) -> None:
+    message = "Rate limit reached in organization `org_01abcXYZ` on tokens per minute"
+    error = {"type": "error", "error": {"type": "rate_limit_error", "message": message}}
+    api.responses = [httpx2.Response(429, json=error, headers={"retry-after-ms": "1"})]
+
+    score = evaluate_case(CASE, "baseline", SETTINGS, False, api.http_client())
+
+    assert "org_***" in score.errors[0]
+    assert "org_01abcXYZ" not in score.errors[0]
 
 
 def test_comment_on_another_line_is_not_a_catch(api: FakeAPI) -> None:

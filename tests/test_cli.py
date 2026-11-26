@@ -311,6 +311,7 @@ def test_eval_writes_results_and_readme(
 
     assert result.exit_code == 0
     assert "| baseline | 1 |" in readme.read_text()
+    assert "claude-opus-5-5 4/20 and claude-haiku-5-5 0.1/0.5" in readme.read_text()
     assert len(list((tmp_path / "eval" / "results").iterdir())) == 2
 
 

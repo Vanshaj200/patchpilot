@@ -7,6 +7,7 @@ on the buggy code.
 """
 
 import json
+import re
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -29,6 +30,8 @@ CONFIGURATIONS: dict[str, dict[str, bool]] = {
 }
 README_START = "<!-- eval:start -->"
 README_END = "<!-- eval:end -->"
+# Some API errors name the account. Result files are shared, so such names are removed.
+_ACCOUNT_ID = re.compile(r"\borg_[A-Za-z0-9]+")
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,10 @@ class CaseScore:
     cost_usd: float | None
     latency_seconds: float
     errors: tuple[str, ...]
+    # The model's work, kept so that a person can check whether each "caught" is deserved.
+    review_comments: tuple[dict[str, object], ...] = ()
+    test_code: str = ""
+    test_verdicts: tuple[dict[str, str], ...] = ()
 
 
 def load_cases(directory: Path) -> list[Case]:
@@ -96,6 +103,9 @@ def evaluate_case(
     caught_by_review, comments = False, 0
     caught_by_tests = False if with_tests else None
     tests = bad_tests = 0
+    notes: list[dict[str, object]] = []
+    test_code = ""
+    verdicts: list[dict[str, str]] = []
 
     with tempfile.TemporaryDirectory(prefix="patchpilot-eval-") as temp:
         buggy_dir, good_dir = Path(temp) / "buggy", Path(temp) / "good"
@@ -108,22 +118,31 @@ def evaluate_case(
             review = review_diff(files, llm, settings, buggy_dir)
             comments = len(review.comments)
             caught_by_review = any(c.line in case.bug_lines for c in review.comments)
+            notes = [
+                c.model_dump(mode="json") | {"on_bug_line": c.line in case.bug_lines}
+                for c in review.comments
+            ]
         except LLMError as error:
-            errors.append(f"review: {error}")
+            errors.append(_redact(f"review: {error}"))
 
         if with_tests:
             try:
                 code = generate_tests(files, buggy_dir, llm, settings)
                 if code is not None:
+                    test_code = code
                     timeout = settings.test_timeout_seconds
                     judged = judge(
                         run_tests(code, buggy_dir, timeout), run_tests(code, good_dir, timeout)
                     )
                     tests = len(judged)
+                    verdicts = [
+                        {"test": result.name, "verdict": verdict.value, "message": result.message}
+                        for result, verdict in judged
+                    ]
                     bad_tests = sum(verdict == Verdict.BAD_TEST for _, verdict in judged)
                     caught_by_tests = any(verdict == Verdict.POSSIBLE_BUG for _, verdict in judged)
             except LLMError as error:
-                errors.append(f"gentests: {error}")
+                errors.append(_redact(f"gentests: {error}"))
 
     costs = [record.cost_usd for record in records]
     known = [cost for cost in costs if cost is not None]
@@ -147,6 +166,9 @@ def evaluate_case(
         cost_usd=sum(known) if len(known) == len(costs) else None,
         latency_seconds=sum(record.latency_seconds for record in records),
         errors=tuple(errors),
+        review_comments=tuple(notes),
+        test_code=test_code,
+        test_verdicts=tuple(verdicts),
     )
 
 
@@ -245,6 +267,10 @@ def update_readme(readme: Path, table: str) -> None:
     if not start or not end:
         raise ValueError(f"{readme} needs the markers {README_START} and {README_END}")
     readme.write_text(f"{before}{start}\n{table}{end}{after}", encoding="utf-8")
+
+
+def _redact(message: str) -> str:
+    return _ACCOUNT_ID.sub("org_***", message)
 
 
 def _caught(score: CaseScore) -> bool:

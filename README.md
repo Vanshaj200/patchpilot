@@ -304,7 +304,8 @@ docker run --rm -it -e ANTHROPIC_API_KEY -v "${PWD}:/work" patchpilot eval --rea
 For another provider, pass its key variable with `-e` and add `--provider <name>`. Costs then
 show as `unknown`, so compare bugs caught, tokens and time.
 
-Raw results are saved in `eval/results/`.
+Raw results are saved in `eval/results/`, including every review comment and generated test,
+so you can check whether each catch is deserved.
 
 ### Results
 

@@ -1,12 +1,15 @@
 """Command-line interface."""
 
+import io
 import json
 import logging
 import sqlite3
+import sys
 from collections import Counter
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
@@ -26,14 +29,14 @@ from patchpilot.evaluation import (
 )
 from patchpilot.gentests import generate_tests
 from patchpilot.llm import LLMClient, LLMError
-from patchpilot.review import review_diff
+from patchpilot.review import github_annotations, review_diff
 from patchpilot.runner import Verdict, judge, run_tests
 from patchpilot.store import SummaryRow, UsageStore
 
 DEBUG_LOG = Path("patchpilot-debug.log")
 
 # Local variables stay out of tracebacks because they can hold source code or the API key.
-app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
+app = typer.Typer(no_args_is_help=True, add_completion=False, pretty_exceptions_show_locals=False)
 
 DiffFile = Annotated[
     Path,
@@ -65,22 +68,35 @@ DebugOption = Annotated[
 ]
 
 
+class OutputFormat(StrEnum):
+    JSON = "json"
+    GITHUB = "github"
+
+
 @app.callback()
 def main() -> None:
     """Review a git diff with the Claude API and test the changed code."""
+    # Test messages and replies can hold characters that a piped Windows console cannot
+    # encode. Show them escaped instead of crashing.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(errors="backslashreplace")
 
 
 @app.command()
 def review(
     diff_file: DiffFile,
     repo: RepoOption = Path("."),
+    output_format: Annotated[
+        OutputFormat, typer.Option("--format", help="json, or github for pull request notes.")
+    ] = OutputFormat.JSON,
     prompt_version: PromptOption = None,
     routing: RoutingOption = None,
     prompt_cache: PromptCacheOption = None,
     response_cache: ResponseCacheOption = None,
     debug: DebugOption = False,
 ) -> None:
-    """Print review comments for a diff as JSON."""
+    """Print review comments for a diff."""
     if debug:
         _enable_debug_log()
     with _report_errors():
@@ -92,8 +108,11 @@ def review(
         )
         files = _read_diff(diff_file)
         result = review_diff(files, _client(settings), settings, repo)
-    # json.dumps escapes non-ASCII text, so output is safe on any console encoding.
-    typer.echo(json.dumps(result.model_dump(mode="json"), indent=2))
+    if output_format == OutputFormat.GITHUB:
+        typer.echo(github_annotations(result))
+    else:
+        # json.dumps escapes non-ASCII text, so output is safe on any console encoding.
+        typer.echo(json.dumps(result.model_dump(mode="json"), indent=2))
 
 
 @app.command()

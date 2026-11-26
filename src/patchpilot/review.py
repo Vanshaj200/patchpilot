@@ -38,6 +38,26 @@ class Review(BaseModel):
     comments: list[ReviewComment]
 
 
+def github_annotations(review: Review) -> str:
+    """Format comments as GitHub Actions commands, which appear on the pull request's lines."""
+    levels = {Severity.HIGH: "error", Severity.MEDIUM: "warning", Severity.LOW: "notice"}
+    return "\n".join(
+        f"::{levels[comment.severity]} file={_escape_property(comment.file)},"
+        f"line={comment.line},title=PatchPilot ({comment.severity})::"
+        f"{_escape_data(comment.message)}"
+        for comment in review.comments
+    )
+
+
+def _escape_data(text: str) -> str:
+    # The message comes from a model: a raw newline would let it start a command of its own.
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _escape_property(text: str) -> str:
+    return _escape_data(text).replace(":", "%3A").replace(",", "%2C")
+
+
 def estimate_tokens_saved(files: Sequence[ChangedFile], repo: Path) -> int | None:
     """Estimate the tokens saved by sending hunks instead of whole files.
 

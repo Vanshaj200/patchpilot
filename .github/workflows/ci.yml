@@ -21,3 +21,17 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build --tag patchpilot .
+      - run: docker run --rm patchpilot --help
+      - name: Run a test file inside the container
+        run: |
+          mkdir smoke
+          cp eval/cases/01_pagination/good.py smoke/pagination.py
+          cp eval/cases/01_pagination/test_oracle.py smoke/oracle.py
+          docker run --rm --volume "$PWD/smoke:/work" patchpilot run oracle.py

@@ -1,0 +1,75 @@
+# Example: run PatchPilot on pull requests. Each run makes paid API requests, so it is off until
+# you add the ANTHROPIC_API_KEY secret and set the repository variable PATCHPILOT_ENABLED to true.
+name: PatchPilot
+
+on:
+  # Not pull_request_target: code from forks must never run with access to secrets.
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    if: >-
+      vars.PATCHPILOT_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # PatchPilot is installed from the base branch, so a pull request cannot change the tool
+      # that handles the API key. To use this in another repository, check out PatchPilot here.
+      - name: Check out PatchPilot
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: tool
+          persist-credentials: false
+      - name: Check out the pull request
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: repo
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: python -m pip install ./tool
+
+      # Commands run outside the checkout, so a .env file in the pull request is never read.
+      - name: Collect the Python changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: git -C repo diff "$BASE...$HEAD" -- '*.py' > change.diff
+
+      - name: Review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: patchpilot review change.diff --repo repo --format github --no-response-cache
+
+      - name: Generate tests
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: patchpilot gentests change.diff --repo repo --no-response-cache
+
+      # No API key in this step: it executes code. Generated tests can be wrong, so a failure
+      # is reported without blocking the pull request.
+      - name: Run the generated tests
+        if: hashFiles('patchpilot_tests.py') != ''
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          patchpilot run patchpilot_tests.py --repo repo | tee results.txt
+
+      - name: Summarise tests and cost
+        if: always()
+        run: |
+          {
+            echo '### PatchPilot'
+            echo '```'
+            cat results.txt 2>/dev/null || echo 'No test results.'
+            patchpilot report
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

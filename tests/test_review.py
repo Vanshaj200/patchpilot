@@ -6,7 +6,13 @@ from conftest import COMMENT, DIFF, FakeAPI, reply
 from patchpilot.config import Settings
 from patchpilot.diff import parse_diff
 from patchpilot.prompts import REVIEW_PROMPTS
-from patchpilot.review import estimate_tokens_saved, review_diff
+from patchpilot.review import (
+    Review,
+    ReviewComment,
+    estimate_tokens_saved,
+    github_annotations,
+    review_diff,
+)
 
 
 @pytest.mark.parametrize("version", ["v1", "v2"])
@@ -64,6 +70,28 @@ def test_tokens_saved_compares_hunks_with_the_whole_file(api: FakeAPI, tmp_path:
     saved = api.records[0].tokens_saved
     assert saved is not None
     assert saved > 500
+
+
+def test_github_annotations() -> None:
+    review = Review(
+        comments=[
+            ReviewComment(
+                file="a,b:c.py", line=3, severity="high", message="50% wrong\n::error::x"
+            ),
+            ReviewComment(file="d.py", line=1, severity="medium", message="m"),
+            ReviewComment(file="d.py", line=2, severity="low", message="l"),
+        ]
+    )
+
+    assert github_annotations(review).split("\n") == [
+        "::error file=a%2Cb%3Ac.py,line=3,title=PatchPilot (high)::50%25 wrong%0A::error::x",
+        "::warning file=d.py,line=1,title=PatchPilot (medium)::m",
+        "::notice file=d.py,line=2,title=PatchPilot (low)::l",
+    ]
+
+
+def test_no_annotations_without_comments() -> None:
+    assert github_annotations(Review(comments=[])) == ""
 
 
 def test_tokens_saved_is_unknown_without_the_files(tmp_path: Path) -> None:

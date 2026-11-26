@@ -82,6 +82,20 @@ def test_removal_without_context_lines() -> None:
     assert "def unchanged" in snippets(parse_diff(text)[0])
 
 
+def test_class_decorators_and_fields_are_included() -> None:
+    source = (
+        "@dataclass\nclass Point:\n    x: int\n    y: int = 0\n\n"
+        "    def total(self):\n        return self.x + self.y\n"
+    )
+
+    selected = snippets(change("+        return self.x + self.y", start=7), source)
+
+    assert selected == (
+        "@dataclass\nclass Point:\n    x: int\n    y: int = 0\n"
+        "    def total(self):\n        return self.x + self.y"
+    )
+
+
 def test_change_outside_any_function_selects_nothing() -> None:
     assert find_target(change("+import math", start=1), SOURCE) is None
 

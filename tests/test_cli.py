@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -39,6 +42,15 @@ def test_review_prints_json(fake_cli: FakeAPI, tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert json.loads(result.stdout) == {"comments": [COMMENT]}
     assert not cli.DEBUG_LOG.exists()
+
+
+def test_review_github_format(fake_cli: FakeAPI, tmp_path: Path) -> None:
+    fake_cli.responses = [reply({"comments": [COMMENT]})]
+
+    result = runner.invoke(cli.app, ["review", write_diff(tmp_path), "--format", "github"])
+
+    assert result.exit_code == 0
+    assert result.stdout.startswith("::error file=calc.py,line=2,")
 
 
 def test_review_accepts_a_byte_order_mark(fake_cli: FakeAPI, tmp_path: Path) -> None:
@@ -276,6 +288,25 @@ def test_eval_without_cases(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "no cases found" in result.stderr
+
+
+def test_output_survives_a_console_that_cannot_encode_it(tmp_path: Path) -> None:
+    (tmp_path / "code").mkdir()
+    code = 'def test_arrow():\n    assert False, "a \\u2192 b"\n'
+    (tmp_path / "t.py").write_text(code)
+    command = [sys.executable, "-c", "from patchpilot.cli import app; app()"]
+
+    # A real process: the test runner's captured streams would hide the problem.
+    result = subprocess.run(
+        [*command, "run", "t.py", "--repo", "code"],
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+        capture_output=True,
+        check=False,
+    )
+
+    assert b"UnicodeEncodeError" not in result.stderr
+    assert b"a \\u2192 b" in result.stdout
+    assert result.returncode == 1
 
 
 def test_missing_diff_file() -> None:

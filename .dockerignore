@@ -1,0 +1,6 @@
+# Send only what the Dockerfile copies, so .env and local data can never enter the image.
+*
+!pyproject.toml
+!README.md
+!src
+**/__pycache__

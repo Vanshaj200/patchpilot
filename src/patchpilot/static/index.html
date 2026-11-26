@@ -10,6 +10,11 @@
   <main>
     <h1>PatchPilot</h1>
     <p class="lead">Review code with the model you choose, using your own API key.</p>
+    <p>
+      <a href="https://github.com/Vanshaj200/patchpilot" target="_blank"
+         rel="noopener noreferrer">Source code on GitHub</a>
+      · <a href="#about-heading">How it works</a>
+    </p>
 
     <p id="privacy" class="notice" hidden>
       This is a shared server. Your key and code pass through it to the provider you choose.
@@ -54,6 +59,7 @@
 
     <p id="status" role="status" aria-live="polite"></p>
     <section id="results" aria-label="Results"></section>
+    <p id="totals" class="help"></p>
 
     <section id="test-panel" class="panel" aria-labelledby="test-heading">
       <h2 id="test-heading">Run tests</h2>
@@ -68,6 +74,31 @@
       <div class="actions"><button type="button" id="run-tests">Run tests in browser</button></div>
       <p id="test-status" role="status" aria-live="polite"></p>
       <div id="test-results"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="about-heading">
+      <h2 id="about-heading">How it works</h2>
+      <dl>
+        <dt>Model routing</dt>
+        <dd>With the model field empty, the small model is used only for one file with at most 20
+          changed lines and nothing that looks risky, such as passwords, SQL, <code>eval</code>,
+          subprocesses or threads. Everything else goes to the large model.</dd>
+        <dt>Token and cost tracking</dt>
+        <dd>Each result shows the model, why it was used, tokens, cached tokens, time and cost,
+          with a total for this visit. Costs are calculated for Claude models and shown as
+          unknown for other providers.</dd>
+        <dt>Caching</dt>
+        <dd>Claude requests mark the instructions for prompt caching, although short ones may be
+          too small to be cached. The command-line tool can also reuse replies to identical
+          requests. This website does not, so that it keeps none of your code.</dd>
+        <dt>Evaluation</dt>
+        <dd>The project includes 26 small functions, each with one planted bug, and a harness that
+          measures bugs caught and cost. Only a two-case trial has run so far, so there are no
+          benchmark results yet.</dd>
+        <dt>Your API key</dt>
+        <dd>It is sent to this app, used to call the provider you chose, and then discarded. The
+          app does not write it to disk or to its logs.</dd>
+      </dl>
     </section>
   </main>
   <script src="/static/app.js"></script>

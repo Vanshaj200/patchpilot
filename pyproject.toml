@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=2.14,<3",
+    "fastapi>=0.165,<1",  # the web page
     "httpx2>=2.16,<3",
     "openai>=3.60,<4",  # client for NVIDIA's OpenAI-compatible API
     "pydantic>=2.14,<3",
@@ -23,13 +24,17 @@ patchpilot = "patchpilot.cli:app"
 
 [project.optional-dependencies]
 web = [
-    "fastapi>=0.165,<1",
-    "uvicorn>=0.54,<1",
+    "uvicorn>=0.54,<1",  # runs the web page outside serverless hosts
 ]
 dev = [
     "patchpilot[web]",
     "ruff>=0.17,<0.18",
 ]
+
+# Static files must be served by the app, not a CDN: the app adds the security headers that
+# stop code under test from calling it.
+[tool.vercel.fastapi.static]
+cdn = false
 
 [tool.hatch.version]
 path = "src/patchpilot/__init__.py"

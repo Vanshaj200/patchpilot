@@ -1,0 +1,97 @@
+{
+  "details": {
+    "Run (UTC)": "2026-11-26 18:59",
+    "PatchPilot": "0.1.0",
+    "provider": "groq",
+    "large model": "openai/gpt-oss-120b",
+    "small model": "openai/gpt-oss-20b",
+    "prompt": "v2",
+    "effort": "medium"
+  },
+  "scores": [
+    {
+      "configuration": "baseline",
+      "case": "01_pagination",
+      "bug_type": "off-by-one",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 1,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 965,
+      "cache_read_tokens": 0,
+      "output_tokens": 1267,
+      "cost_usd": null,
+      "latency_seconds": 3.390843399989535,
+      "errors": []
+    },
+    {
+      "configuration": "baseline",
+      "case": "02_discount",
+      "bug_type": "wrong operator",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 7,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 939,
+      "cache_read_tokens": 256,
+      "output_tokens": 1022,
+      "cost_usd": null,
+      "latency_seconds": 3.1502697999967495,
+      "errors": []
+    },
+    {
+      "configuration": "optimised",
+      "case": "01_pagination",
+      "bug_type": "off-by-one",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 965,
+      "cache_read_tokens": 0,
+      "output_tokens": 1709,
+      "cost_usd": null,
+      "latency_seconds": 2.489914999998291,
+      "errors": []
+    },
+    {
+      "configuration": "optimised",
+      "case": "02_discount",
+      "bug_type": "wrong operator",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 939,
+      "cache_read_tokens": 0,
+      "output_tokens": 1170,
+      "cost_usd": null,
+      "latency_seconds": 2.166340700001456,
+      "errors": []
+    }
+  ]
+}

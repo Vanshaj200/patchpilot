@@ -1,4 +1,5 @@
 import json
+import logging
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -358,6 +359,61 @@ def test_local_server_is_not_rate_limited(client: TestClient) -> None:
     codes = {client.post("/api/review", json=job()).status_code for _ in range(15)}
 
     assert codes == {200}
+
+
+@pytest.mark.parametrize(
+    "key", ["has space", "new\nline", "null\x00byte", "accent-\u00e9", "emoji-\U0001f511"]
+)
+@pytest.mark.parametrize("provider", ["anthropic", "groq"])
+def test_malformed_keys_are_refused_without_being_repeated(
+    public: TestClient, api: FakeAPI, provider: str, key: str
+) -> None:
+    response = public.post("/api/review", json=job(provider=provider, api_key=f"x{key}x"))
+
+    assert response.status_code == 400
+    assert "not allowed" in response.json()["detail"]
+    assert key not in response.text
+    assert api.requests == []
+
+
+@pytest.mark.parametrize("provider", ["anthropic", "groq"])
+def test_a_visitors_key_is_never_logged_or_stored(
+    public: TestClient, api: FakeAPI, caplog: pytest.LogCaptureFixture, provider: str
+) -> None:
+    # Everything every library logs, at the most detailed level, for success and failure.
+    caplog.set_level(logging.DEBUG)
+    error = {"error": {"type": "authentication_error", "message": "bad key"}}
+    good = reply() if provider == "anthropic" else completion()
+    api.responses = [good, httpx2.Response(401, json=error)]
+    secret = "sk-visitor-secret-123"
+
+    first = public.post("/api/review", json=job(provider=provider, api_key=secret))
+    second = public.post("/api/review", json=job(provider=provider, api_key=secret))
+
+    assert (first.status_code, second.status_code) == (200, 502)
+    assert secret not in caplog.text
+    assert secret not in first.text + second.text
+    assert list(Path.cwd().rglob("*")) == []
+
+
+def test_usage_explains_the_model_and_shows_cached_tokens(client: TestClient, api: FakeAPI) -> None:
+    usage = {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 90}
+    api.responses = [reply(usage=usage)]
+
+    automatic = client.post("/api/review", json=job()).json()["usage"]
+    chosen = client.post("/api/review", json=job(model="claude-sonnet-5-5")).json()["usage"]
+
+    assert automatic["route"] == "small change with no risky lines"
+    assert chosen["route"] == "you chose this model"
+    assert (automatic["input_tokens"], automatic["cached_input_tokens"]) == (100, 90)
+
+
+def test_page_links_to_the_source_and_explains_the_features(client: TestClient) -> None:
+    page = client.get("/").text
+
+    assert "https://github.com/Vanshaj200/patchpilot" in page
+    for heading in ("Model routing", "Token and cost tracking", "Caching", "Evaluation"):
+        assert f"<dt>{heading}</dt>" in page
 
 
 def test_oversized_requests_are_refused_unread(public: TestClient, api: FakeAPI) -> None:

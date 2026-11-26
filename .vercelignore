@@ -1,0 +1,10 @@
+# Never upload secrets or local data, even when deploying straight from a working folder.
+.env
+.env.*
+!.env.example
+.venv
+.patchpilot
+.claude
+*.db
+*.log
+study-notes.md

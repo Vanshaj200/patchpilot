@@ -92,9 +92,11 @@
           too small to be cached. The command-line tool can also reuse replies to identical
           requests. This website does not, so that it keeps none of your code.</dd>
         <dt>Evaluation</dt>
-        <dd>The project includes 26 small functions, each with one planted bug, and a harness that
-          measures bugs caught and cost. Only a two-case trial has run so far, so there are no
-          benchmark results yet.</dd>
+        <dd>In one run on 26 small functions, each with a planted bug, using Groq models, review or
+          generated tests caught 25 with the large model alone and 21 with routing and caching
+          switched on. The
+          <a href="https://github.com/Vanshaj200/patchpilot#results" target="_blank"
+             rel="noopener noreferrer">full results</a> show costs, errors and limits.</dd>
         <dt>Your API key</dt>
         <dd>It is sent to this app, used to call the provider you chose, and then discarded. The
           app does not write it to disk or to its logs.</dd>

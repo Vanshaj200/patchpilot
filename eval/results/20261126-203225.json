@@ -1,0 +1,3131 @@
+{
+  "details": {
+    "Run (UTC)": "2026-11-26 20:32",
+    "PatchPilot": "0.1.0",
+    "provider": "groq",
+    "large model": "openai/gpt-oss-120b",
+    "small model": "openai/gpt-oss-20b",
+    "prompt": "v2",
+    "effort": "medium",
+    "prices (USD per million input/output tokens)": "openai/gpt-oss-120b 0.15/0.6 and openai/gpt-oss-20b 0.075/0.3"
+  },
+  "scores": [
+    {
+      "configuration": "baseline",
+      "case": "01_pagination",
+      "bug_type": "off-by-one",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 6,
+      "bad_tests": 1,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 965,
+      "cache_read_tokens": 0,
+      "output_tokens": 1401,
+      "cost_usd": 0.0009853499999999999,
+      "latency_seconds": 3.771565600007307,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "pagination.py",
+          "line": 3,
+          "severity": "medium",
+          "message": "The start index calculation adds 1, causing an off\u2011by\u2011one error: page 1 begins at index 1 instead of 0, so the first item is omitted and all pages are shifted.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\nimport pagination\n\n\ndef test_page_items_first_page():\n    items = [\"a\", \"b\", \"c\", \"d\", \"e\"]\n    # page 1, size 2 should return first two items\n    result = pagination.page_items(items, page=1, size=2)\n    assert result == [\"a\", \"b\"]\n\n\ndef test_page_items_second_page():\n    items = [\"a\", \"b\", \"c\", \"d\", \"e\"]\n    # page 2, size 2 should return items 3 and 4\n    result = pagination.page_items(items, page=2, size=2)\n    assert result == [\"c\", \"d\"]\n\n\ndef test_page_items_last_partial_page():\n    items = [\"a\", \"b\", \"c\", \"d\", \"e\"]\n    # page 3, size 2: only one item remains\n    result = pagination.page_items(items, page=3, size=2)\n    assert result == [\"e\"]\n\n\ndef test_page_items_page_out_of_range_returns_empty():\n    items = [\"a\", \"b\", \"c\"]\n    # page 5 is beyond the available items\n    result = pagination.page_items(items, page=5, size=2)\n    assert result == []\n\n\ndef test_page_items_empty_items_list():\n    items: list[str] = []\n    result = pagination.page_items(items, page=1, size=3)\n    assert result == []\n\n\ndef test_page_items_invalid_page_and_size():\n    items = [\"a\", \"b\", \"c\"]\n    # page numbers should start at 1\n    with pytest.raises(ValueError):\n        pagination.page_items(items, page=0, size=2)\n    # size should be positive\n    with pytest.raises(ValueError):\n        pagination.page_items(items, page=1, size=0)\n",
+      "test_verdicts": [
+        {
+          "test": "test_page_items_first_page",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert ['b', 'c'] == ['a', 'b']\n  \n  At index 0 diff: 'b' != 'a'\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_page_items_second_page",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert ['d', 'e'] == ['c', 'd']\n  \n  At index 0 diff: 'd' != 'c'\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_page_items_last_partial_page",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert [] == ['e']\n  \n  Right contains one more item: 'e'\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_page_items_page_out_of_range_returns_empty",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_page_items_empty_items_list",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_page_items_invalid_page_and_size",
+          "verdict": "bad test",
+          "message": "Failed: DID NOT RAISE ValueError"
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "02_discount",
+      "bug_type": "wrong operator",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 6,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 939,
+      "cache_read_tokens": 0,
+      "output_tokens": 875,
+      "cost_usd": 0.00066585,
+      "latency_seconds": 2.534201699992991,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "pricing.py",
+          "line": 4,
+          "severity": "medium",
+          "message": "The function adds the discount to the original price instead of subtracting it, returning a higher price than intended.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nimport pricing\n\n@pytest.mark.parametrize(\n    \"price, percent, expected\",\n    [\n        (100.0, 20.0, 80.00),          # typical discount\n        (123.45, 0.0, 123.45),         # zero percent discount\n        (50.0, 100.0, 0.00),           # full discount\n        (10.005, 0.0, 10.01),          # rounding of original price\n        (-100.0, 10.0, -90.00),        # negative price handling\n    ],\n)\ndef test_discounted_price_correctness(price, percent, expected):\n    \"\"\"Check that discounted_price returns price reduced by ``percent``% and rounded to 2 decimals.\"\"\"\n    result = pricing.discounted_price(price, percent)\n    assert result == expected\n\ndef test_discounted_price_invalid_input_type():\n    \"\"\"Passing non\u2011numeric arguments should raise a TypeError.\"\"\"\n    with pytest.raises(TypeError):\n        pricing.discounted_price(None, 10)\n    with pytest.raises(TypeError):\n        pricing.discounted_price(10, None)\n    with pytest.raises(TypeError):\n        pricing.discounted_price(\"100\", 10)\n",
+      "test_verdicts": [
+        {
+          "test": "test_discounted_price_correctness[100.0-20.0-80.0]",
+          "verdict": "possible bug",
+          "message": "assert 120.0 == 80.0"
+        },
+        {
+          "test": "test_discounted_price_correctness[123.45-0.0-123.45]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_discounted_price_correctness[50.0-100.0-0.0]",
+          "verdict": "possible bug",
+          "message": "assert 100.0 == 0.0"
+        },
+        {
+          "test": "test_discounted_price_correctness[10.005-0.0-10.01]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_discounted_price_correctness[-100.0-10.0--90.0]",
+          "verdict": "possible bug",
+          "message": "assert -110.0 == -90.0"
+        },
+        {
+          "test": "test_discounted_price_invalid_input_type",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "03_user_email",
+      "bug_type": "missing None check",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 971,
+      "cache_read_tokens": 256,
+      "output_tokens": 1108,
+      "cost_usd": 0.0007912499999999999,
+      "latency_seconds": 3.0756462999997893,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "accounts.py",
+          "line": 4,
+          "severity": "high",
+          "message": "If the given user_id is not present, users.get returns None and the code attempts to subscript it (user[\"email\"]), causing a TypeError crash. Likewise, missing \"email\" key raises KeyError. The function should check for None and missing keys before accessing.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\nimport accounts\n\n\n@pytest.fixture\ndef sample_users():\n    return {\n        1: {\"email\": \"alice@example.com\"},\n        2: {\"email\": \"bob@sub.domain.org\"},\n        3: {\"email\": \"charlie@@double.at.com\"},\n        4: {\"email\": \"\"},\n        5: {},  # user without an email key\n    }\n\n\ndef test_email_domain_returns_correct_domain(sample_users):\n    assert accounts.email_domain(sample_users, 1) == \"example.com\"\n    assert accounts.email_domain(sample_users, 2) == \"sub.domain.org\"\n\n\ndef test_email_domain_missing_user_returns_none(sample_users):\n    # user id 999 does not exist in the dictionary\n    assert accounts.email_domain(sample_users, 999) is None\n\n\ndef test_email_domain_multiple_at_symbols(sample_users):\n    # The function splits on '@' and returns the last segment\n    assert accounts.email_domain(sample_users, 3) == \"double.at.com\"\n\n\ndef test_email_domain_empty_email_string(sample_users):\n    # An empty email string results in an empty domain according to the implementation\n    assert accounts.email_domain(sample_users, 4) == \"\"\n\n\ndef test_email_domain_missing_email_key_raises_keyerror(sample_users):\n    # When the user dict lacks an \"email\" key, a KeyError is raised (current behaviour)\n    with pytest.raises(KeyError):\n        accounts.email_domain(sample_users, 5)\n",
+      "test_verdicts": [
+        {
+          "test": "test_email_domain_returns_correct_domain",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_email_domain_missing_user_returns_none",
+          "verdict": "possible bug",
+          "message": "TypeError: 'NoneType' object is not subscriptable"
+        },
+        {
+          "test": "test_email_domain_multiple_at_symbols",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_email_domain_empty_email_string",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_email_domain_missing_email_key_raises_keyerror",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "04_tags",
+      "bug_type": "mutable default argument",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 944,
+      "cache_read_tokens": 0,
+      "output_tokens": 1197,
+      "cost_usd": 0.0008598,
+      "latency_seconds": 3.334410099996603,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "tagging.py",
+          "line": 1,
+          "severity": "medium",
+          "message": "The function uses a mutable default argument (tags=[]). The same list is reused across calls, so tags accumulate unexpectedly, contradicting the docstring that says a new list is used when none is given.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nimport tagging\n\ndef test_add_tag_returns_new_list_when_no_tags_given():\n    result = tagging.add_tag('alpha')\n    assert isinstance(result, list)\n    assert result == ['alpha']\n\ndef test_add_tag_without_tags_creates_independent_lists():\n    first = tagging.add_tag('first')\n    second = tagging.add_tag('second')\n    # Ensure they are distinct objects and do not share state\n    assert first is not second\n    assert first == ['first']\n    assert second == ['second']\n\ndef test_add_tag_appends_to_provided_list():\n    original = ['x']\n    result = tagging.add_tag('y', original)\n    # The function should modify the provided list in place and return it\n    assert result is original\n    assert original == ['x', 'y']\n\ndef test_multiple_add_tag_calls_accumulate():\n    tags = []\n    tagging.add_tag('a', tags)\n    tagging.add_tag('b', tags)\n    tagging.add_tag('c', tags)\n    assert tags == ['a', 'b', 'c']\n\ndef test_add_tag_with_empty_string():\n    result = tagging.add_tag('')\n    assert result == ['']\n",
+      "test_verdicts": [
+        {
+          "test": "test_add_tag_returns_new_list_when_no_tags_given",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_add_tag_without_tags_creates_independent_lists",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert ['alpha', 'first', 'second'] is not ['alpha', 'first', 'second']"
+        },
+        {
+          "test": "test_add_tag_appends_to_provided_list",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_multiple_add_tag_calls_accumulate",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_add_tag_with_empty_string",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert ['alpha', 'fi... 'second', ''] == ['']\n  \n  At index 0 diff: 'alpha' != ''\n  Left contains 3 more items, first extra item: 'first'\n  Use -v to get more diff"
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "05_find_user",
+      "bug_type": "SQL injection",
+      "caught_by_review": true,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 1,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 993,
+      "cache_read_tokens": 256,
+      "output_tokens": 1608,
+      "cost_usd": 0.00109455,
+      "latency_seconds": 4.09152119999635,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "repository.py",
+          "line": 6,
+          "severity": "high",
+          "message": "The SQL query is built by concatenating the user\u2011supplied 'name' directly, creating an SQL injection vulnerability and possible syntax errors if the name contains quotes.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import sqlite3\nimport pytest\n\nimport repository\n\n@pytest.fixture\ndef db_connection():\n    # Create an in\u2011memory SQLite database and populate it with a simple users table.\n    conn = sqlite3.connect(\":memory:\")\n    conn.execute(\n        \"\"\"\n        CREATE TABLE users (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            name TEXT NOT NULL\n        )\n        \"\"\"\n    )\n    # Insert a deterministic set of rows.\n    users = [\"Alice\", \"Bob\", \"Alice\", \"alice\", \"\"]\n    for name in users:\n        conn.execute(\"INSERT INTO users (name) VALUES (?)\", (name,))\n    conn.commit()\n    yield conn\n    conn.close()\n\ndef test_find_users_exact_match(db_connection):\n    # Two rows have the name 'Alice'. Verify both are returned with correct ids.\n    rows = repository.find_users(db_connection, \"Alice\")\n    assert isinstance(rows, list)\n    # Should return exactly two rows.\n    assert len(rows) == 2\n    # All returned names must equal the query string.\n    for row in rows:\n        user_id, name = row\n        assert isinstance(user_id, int)\n        assert name == \"Alice\"\n    # Ensure the ids correspond to the inserted rows (they will be 1 and 3).\n    ids = {row[0] for row in rows}\n    assert ids == {1, 3}\n\ndef test_find_users_no_match(db_connection):\n    # Query a name that does not exist; expect an empty list.\n    rows = repository.find_users(db_connection, \"Charlie\")\n    assert rows == []\n\ndef test_find_users_empty_name(db_connection):\n    # There is a user with an empty string as the name (id 5).\n    rows = repository.find_users(db_connection, \"\")\n    assert len(rows) == 1\n    user_id, name = rows[0]\n    assert user_id == 5\n    assert name == \"\"\n\ndef test_find_users_case_sensitivity(db_connection):\n    # SQLite's default equality is case\u2011sensitive for TEXT, so 'alice' should not match 'Alice'.\n    rows_upper = repository.find_users(db_connection, \"Alice\")\n    rows_lower = repository.find_users(db_connection, \"alice\")\n    assert len(rows_upper) == 2  # 'Alice' rows\n    assert len(rows_lower) == 1  # the distinct lowercase entry\n    # Verify the returned name matches the query case.\n    assert all(name == \"Alice\" for _, name in rows_upper)\n    assert all(name == \"alice\" for _, name in rows_lower)\n\ndef test_find_users_sql_injection_raises(db_connection):\n    # Passing a name containing a single quote leads to malformed SQL and should raise an error.\n    malicious_name = \"Bob'; DROP TABLE users;--\"\n    with pytest.raises(sqlite3.OperationalError):\n        repository.find_users(db_connection, malicious_name)\n",
+      "test_verdicts": [
+        {
+          "test": "test_find_users_exact_match",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_find_users_no_match",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_find_users_empty_name",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_find_users_case_sensitivity",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_find_users_sql_injection_raises",
+          "verdict": "bad test",
+          "message": "sqlite3.ProgrammingError: You can only execute one statement at a time."
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "06_age_gate",
+      "bug_type": "wrong comparison",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 4,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 932,
+      "cache_read_tokens": 0,
+      "output_tokens": 1312,
+      "cost_usd": 0.0009269999999999999,
+      "latency_seconds": 3.8290695999894524,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "eligibility.py",
+          "line": 6,
+          "severity": "medium",
+          "message": "The function uses `age > ADULT_AGE`, so it returns False for age 18, contradicting the docstring that says 18 or older should be True.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nimport eligibility\n\ndef test_is_adult_at_exact_boundary():\n    assert eligibility.is_adult(eligibility.ADULT_AGE) is True\n\ndef test_is_adult_above_boundary():\n    assert eligibility.is_adult(eligibility.ADULT_AGE + 1) is True\n\ndef test_is_adult_below_boundary():\n    for age in [eligibility.ADULT_AGE - 1, 0, -1]:\n        assert eligibility.is_adult(age) is False\n\ndef test_is_adult_invalid_type():\n    with pytest.raises(TypeError):\n        eligibility.is_adult(\"18\")\n",
+      "test_verdicts": [
+        {
+          "test": "test_is_adult_at_exact_boundary",
+          "verdict": "possible bug",
+          "message": "assert False is True\n +  where False = <function is_adult at 0x00000287390BF560>(18)\n +    where <function is_adult at 0x00000287390BF560> = eligibility.is_adult\n +    and   18 = eligibility.ADULT_AGE"
+        },
+        {
+          "test": "test_is_adult_above_boundary",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_adult_below_boundary",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_adult_invalid_type",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "07_read_names",
+      "bug_type": "unclosed resource",
+      "caught_by_review": true,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 2,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 943,
+      "cache_read_tokens": 256,
+      "output_tokens": 1010,
+      "cost_usd": 0.00072825,
+      "latency_seconds": 2.7734896000038134,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "loader.py",
+          "line": 3,
+          "severity": "low",
+          "message": "File handle opened without being closed, causing a resource leak.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import builtins\nimport io\nimport os\nimport pytest\nfrom pathlib import Path\n\nimport loader\n\n\ndef test_read_names_basic(tmp_path: Path):\n    \"\"\"Typical case: file with several non\u2011empty lines returns them stripped.\"\"\"\n    content = \"Alice\\nBob\\nCharlie\\n\"\n    file_path = tmp_path / \"names.txt\"\n    file_path.write_text(content, encoding=\"utf-8\")\n    result = loader.read_names(str(file_path))\n    assert result == [\"Alice\", \"Bob\", \"Charlie\"]\n\n\ndef test_read_names_ignores_blank_and_whitespace(tmp_path: Path):\n    \"\"\"Blank lines and lines containing only whitespace are ignored, other lines are stripped.\"\"\"\n    content = \"   \\nDavid\\n\\n  Eve  \\n\"\n    file_path = tmp_path / \"mixed.txt\"\n    file_path.write_text(content, encoding=\"utf-8\")\n    result = loader.read_names(str(file_path))\n    assert result == [\"David\", \"Eve\"]\n\n\ndef test_read_names_file_not_found(tmp_path: Path):\n    \"\"\"A missing file should raise FileNotFoundError.\"\"\"\n    missing_path = tmp_path / \"does_not_exist.txt\"\n    with pytest.raises(FileNotFoundError):\n        loader.read_names(str(missing_path))\n\n\ndef test_read_names_is_directory(tmp_path: Path):\n    \"\"\"Passing a directory path should raise IsADirectoryError (opened as a file).\"\"\"\n    with pytest.raises(IsADirectoryError):\n        loader.read_names(str(tmp_path))\n\n\ndef test_read_names_non_string_path():\n    \"\"\"Providing a non\u2011string path argument should raise a TypeError from open().\"\"\"\n    with pytest.raises(TypeError):\n        loader.read_names(123)\n",
+      "test_verdicts": [
+        {
+          "test": "test_read_names_basic",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_read_names_ignores_blank_and_whitespace",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_read_names_file_not_found",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_read_names_is_directory",
+          "verdict": "bad test",
+          "message": "PermissionError: [Errno 13] Permission denied: 'C:\\\\Users\\\\VANSHAJ\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-unknown\\\\pytest-104\\\\test_read_names_is_directory0'"
+        },
+        {
+          "test": "test_read_names_non_string_path",
+          "verdict": "bad test",
+          "message": "OSError: [WinError 6] The handle is invalid"
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "08_transfer",
+      "bug_type": "swapped arguments",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 2,
+      "tests": 10,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 1039,
+      "cache_read_tokens": 0,
+      "output_tokens": 1725,
+      "cost_usd": 0.00119085,
+      "latency_seconds": 4.372649099997943,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "ledger.py",
+          "line": 2,
+          "severity": "high",
+          "message": "balances[source] -= amount will raise a KeyError if the source key is missing from the balances dict, causing a crash.",
+          "on_bug_line": false
+        },
+        {
+          "file": "ledger.py",
+          "line": 8,
+          "severity": "medium",
+          "message": "refund calls move with arguments (customer, shop) instead of (shop, customer), so money is taken from the customer rather than returned from the shop, producing incorrect behavior.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nimport copy\n\nimport ledger\n\n\n@pytest.fixture\ndef sample_balances():\n    \"\"\"Provide a fresh copy of a typical balances dict for each test.\"\"\"\n    return {\"alice\": 100, \"bob\": 50, \"shop\": 200, \"customer\": 30}\n\n# Tests for ledger.move\n\ndef test_move_normal_transfer(sample_balances):\n    balances = copy.deepcopy(sample_balances)\n    ledger.move(balances, \"alice\", \"bob\", 30)\n    assert balances[\"alice\"] == 70\n    assert balances[\"bob\"] == 80\n\ndef test_move_zero_amount(sample_balances):\n    balances = copy.deepcopy(sample_balances)\n    ledger.move(balances, \"alice\", \"bob\", 0)\n    assert balances == sample_balances  # no change\n\ndef test_move_full_balance(sample_balances):\n    balances = copy.deepcopy(sample_balances)\n    ledger.move(balances, \"bob\", \"alice\", 50)\n    assert balances[\"bob\"] == 0\n    assert balances[\"alice\"] == 150\n\ndef test_move_negative_amount(sample_balances):\n    balances = copy.deepcopy(sample_balances)\n    ledger.move(balances, \"alice\", \"bob\", -10)\n    # Subtracting a negative amount should increase source and decrease target\n    assert balances[\"alice\"] == 110\n    assert balances[\"bob\"] == 40\n\ndef test_move_missing_key_raises(sample_balances):\n    balances = copy.deepcopy(sample_balances)\n    with pytest.raises(KeyError):\n        ledger.move(balances, \"nonexistent\", \"alice\", 5)\n    with pytest.raises(KeyError):\n        ledger.move(balances, \"alice\", \"nonexistent\", 5)\n\n# Tests for ledger.refund (intended to move money from shop to customer)\n\ndef test_refund_normal_transfer(sample_balances):\n    balances = copy.deepcopy(sample_balances)\n    ledger.refund(balances, shop=\"shop\", customer=\"customer\", amount=20)\n    assert balances[\"shop\"] == 180\n    assert balances[\"customer\"] == 50\n\ndef test_refund_zero_amount(sample_balances):\n    balances = copy.deepcopy(sample_balances)\n    ledger.refund(balances, shop=\"shop\", customer=\"customer\", amount=0)\n    assert balances == sample_balances\n\ndef test_refund_full_shop_balance(sample_balances):\n    balances = copy.deepcopy(sample_balances)\n    ledger.refund(balances, shop=\"shop\", customer=\"customer\", amount=200)\n    assert balances[\"shop\"] == 0\n    assert balances[\"customer\"] == 230\n\ndef test_refund_negative_amount(sample_balances):\n    balances = copy.deepcopy(sample_balances)\n    ledger.refund(balances, shop=\"shop\", customer=\"customer\", amount=-15)\n    # Negative refund should increase shop and decrease customer (mirroring move behavior)\n    assert balances[\"shop\"] == 215\n    assert balances[\"customer\"] == 15\n\ndef test_refund_missing_key_raises(sample_balances):\n    balances = copy.deepcopy(sample_balances)\n    with pytest.raises(KeyError):\n        ledger.refund(balances, shop=\"nonexistent\", customer=\"customer\", amount=10)\n    with pytest.raises(KeyError):\n        ledger.refund(balances, shop=\"shop\", customer=\"nonexistent\", amount=10)\n",
+      "test_verdicts": [
+        {
+          "test": "test_move_normal_transfer",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_move_zero_amount",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_move_full_balance",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_move_negative_amount",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_move_missing_key_raises",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_refund_normal_transfer",
+          "verdict": "possible bug",
+          "message": "assert 220 == 180"
+        },
+        {
+          "test": "test_refund_zero_amount",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_refund_full_shop_balance",
+          "verdict": "possible bug",
+          "message": "assert 400 == 0"
+        },
+        {
+          "test": "test_refund_negative_amount",
+          "verdict": "possible bug",
+          "message": "assert 185 == 215"
+        },
+        {
+          "test": "test_refund_missing_key_raises",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "09_access",
+      "bug_type": "wrong boolean logic",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 938,
+      "cache_read_tokens": 0,
+      "output_tokens": 1006,
+      "cost_usd": 0.0007442999999999999,
+      "latency_seconds": 2.8965356999833602,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "permissions.py",
+          "line": 3,
+          "severity": "high",
+          "message": "The permission check is incorrect: it allows any active user to delete regardless of ownership, and also allows owners to delete even when inactive. It should enforce admin OR (owner AND active).",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\nfrom permissions import can_delete\n\n@pytest.mark.parametrize(\n    \"is_owner, is_active, is_admin, expected\",\n    [\n        (False, False, True, True),   # admin can delete\n        (True, True, False, True),    # owner and active can delete\n        (True, False, False, False),  # owner but not active cannot delete\n        (False, True, False, False),  # active but not owner/admin cannot delete\n        (False, False, False, False), # nobody can delete\n    ],\n)\ndef test_can_delete(is_owner, is_active, is_admin, expected):\n    assert can_delete(is_owner, is_active, is_admin) == expected\n",
+      "test_verdicts": [
+        {
+          "test": "test_can_delete[False-False-True-True]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_can_delete[True-True-False-True]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_can_delete[True-False-False-False]",
+          "verdict": "possible bug",
+          "message": "assert True == False\n +  where True = can_delete(True, False, False)"
+        },
+        {
+          "test": "test_can_delete[False-True-False-False]",
+          "verdict": "possible bug",
+          "message": "assert True == False\n +  where True = can_delete(False, True, False)"
+        },
+        {
+          "test": "test_can_delete[False-False-False-False]",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "10_largest",
+      "bug_type": "missing return",
+      "caught_by_review": false,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 6,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 936,
+      "cache_read_tokens": 0,
+      "output_tokens": 890,
+      "cost_usd": 0.0006744,
+      "latency_seconds": 2.3009888000087813,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "selection.py",
+          "line": 1,
+          "severity": "medium",
+          "message": "If first and second are equal, the function falls off the end without returning a value, yielding None instead of an int, which can cause incorrect results or downstream TypeErrors.",
+          "on_bug_line": false
+        }
+      ],
+      "test_code": "import pytest\nfrom selection import larger\n\n@pytest.mark.parametrize(\n    \"a,b,expected\",\n    [\n        (10, 5, 10),            # first greater than second\n        (-3, -7, -3),           # both negative, first greater\n        (0, 5, 5),              # first smaller, zero involved\n        (5, 5, 5),              # equal numbers should return the number itself\n        (2**62, -2**62, 2**62), # very large integers\n    ],\n)\ndef test_larger_various(a, b, expected):\n    \"\"\"Test that ``larger`` returns the greater of two integers, handling edge cases.\"\"\"\n    assert larger(a, b) == expected\n\n\ndef test_larger_returns_int():\n    \"\"\"The function should always return an ``int`` when given integer inputs.\"\"\"\n    result = larger(1, 2)\n    assert isinstance(result, int)\n",
+      "test_verdicts": [
+        {
+          "test": "test_larger_various[10-5-10]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_larger_various[-3--7--3]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_larger_various[0-5-5]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_larger_various[5-5-5]",
+          "verdict": "possible bug",
+          "message": "assert None == 5\n +  where None = larger(5, 5)"
+        },
+        {
+          "test": "test_larger_various[4611686018427387904--4611686018427387904-4611686018427387904]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_larger_returns_int",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "11_average",
+      "bug_type": "integer division",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 4,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 907,
+      "cache_read_tokens": 0,
+      "output_tokens": 838,
+      "cost_usd": 0.00063885,
+      "latency_seconds": 2.358751400010078,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "grades.py",
+          "line": 3,
+          "severity": "medium",
+          "message": "Uses integer division (//) instead of true division, truncating the average and returning an int despite the float return type annotation, leading to incorrect results for non\u2011integral averages.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nfrom grades import mean_score\n\n\ndef test_mean_score_basic():\n    \"\"\"Typical list of positive integers should return correct float average.\"\"\"\n    result = mean_score([1, 2, 3, 4])\n    assert isinstance(result, float)\n    assert result == 2.5\n\n\ndef test_mean_score_single_element():\n    \"\"\"A single-element list should return that element as a float.\"\"\"\n    assert mean_score([10]) == 10.0\n\n\ndef test_mean_score_negative_and_zero():\n    \"\"\"List containing negative, zero, and positive values should average correctly.\"\"\"\n    assert mean_score([-5, 0, 5]) == 0.0\n\n\ndef test_mean_score_empty_raises():\n    \"\"\"An empty list is invalid; function should raise a division error.\"\"\"\n    with pytest.raises(ZeroDivisionError):\n        mean_score([])\n",
+      "test_verdicts": [
+        {
+          "test": "test_mean_score_basic",
+          "verdict": "possible bug",
+          "message": "assert False\n +  where False = isinstance(2, float)"
+        },
+        {
+          "test": "test_mean_score_single_element",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_mean_score_negative_and_zero",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_mean_score_empty_raises",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "12_parse_port",
+      "bug_type": "swallowed error",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 2,
+      "tests": 8,
+      "bad_tests": 2,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 967,
+      "cache_read_tokens": 0,
+      "output_tokens": 1215,
+      "cost_usd": 0.0008740499999999999,
+      "latency_seconds": 3.4566708999918774,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "settings_reader.py",
+          "line": 5,
+          "severity": "medium",
+          "message": "The function catches any exception and returns 0 instead of raising ValueError as documented, so invalid inputs silently produce a port of 0, leading to incorrect behaviour.",
+          "on_bug_line": true
+        },
+        {
+          "file": "settings_reader.py",
+          "line": 7,
+          "severity": "medium",
+          "message": "The parsed integer is returned without checking that it falls within the valid TCP/UDP port range (1\u201165535), so out\u2011of\u2011range values may be accepted and cause later runtime errors.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\nfrom settings_reader import parse_port\n\n@pytest.mark.parametrize(\n    \"input_text,expected\",\n    [\n        (\"8080\", 8080),\n        (\"0\", 0),\n        (\"65535\", 65535),\n    ],\n)\ndef test_parse_port_returns_valid_port(input_text, expected):\n    \"\"\"Valid numeric strings within the TCP/UDP port range should be returned as integers.\"\"\"\n    assert parse_port(input_text) == expected\n\n@pytest.mark.parametrize(\n    \"bad_input\",\n    [\n        \"abc\",   # non\u2011numeric\n        \"-1\",    # negative number, not a valid port\n        \"70000\", # exceeds max port number 65535\n        \"\",      # empty string\n        \" 123 \", # whitespace\u2011padded string should be considered invalid\n    ],\n)\ndef test_parse_port_raises_value_error_for_invalid_input(bad_input):\n    \"\"\"Invalid inputs should cause ``parse_port`` to raise ``ValueError`` according to its contract.\"\"\"\n    with pytest.raises(ValueError):\n        parse_port(bad_input)\n",
+      "test_verdicts": [
+        {
+          "test": "test_parse_port_returns_valid_port[8080-8080]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_parse_port_returns_valid_port[0-0]",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_parse_port_returns_valid_port[65535-65535]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_parse_port_raises_value_error_for_invalid_input[abc]",
+          "verdict": "possible bug",
+          "message": "Failed: DID NOT RAISE ValueError"
+        },
+        {
+          "test": "test_parse_port_raises_value_error_for_invalid_input[-1]",
+          "verdict": "possible bug",
+          "message": "Failed: DID NOT RAISE ValueError"
+        },
+        {
+          "test": "test_parse_port_raises_value_error_for_invalid_input[70000]",
+          "verdict": "possible bug",
+          "message": "Failed: DID NOT RAISE ValueError"
+        },
+        {
+          "test": "test_parse_port_raises_value_error_for_invalid_input[]",
+          "verdict": "possible bug",
+          "message": "Failed: DID NOT RAISE ValueError"
+        },
+        {
+          "test": "test_parse_port_raises_value_error_for_invalid_input[ 123 ]",
+          "verdict": "bad test",
+          "message": "Failed: DID NOT RAISE ValueError"
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "13_remove_expired",
+      "bug_type": "list changed while iterating",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 966,
+      "cache_read_tokens": 256,
+      "output_tokens": 1135,
+      "cost_usd": 0.0008066999999999999,
+      "latency_seconds": 3.257155999992392,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "sessions.py",
+          "line": 5,
+          "severity": "medium",
+          "message": "Removing elements from the list while iterating (ages.remove(age) at line 5) can skip subsequent items, so some ages over the limit may remain in the result.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nimport copy\n\nimport sessions\n\n\ndef test_drop_expired_basic_behavior():\n    ages = [10, 20, 30]\n    original = ages  # keep reference\n    result = sessions.drop_expired(ages, 25)\n    # Expected ages <= 25 are kept\n    assert result == [10, 20]\n    # The function should modify the list in place and return the same object\n    assert result is original\n    # The original list reference should now be mutated accordingly\n    assert ages == [10, 20]\n\n\ndef test_drop_expired_no_removal():\n    ages = [1, 2, 3]\n    original = copy.copy(ages)\n    result = sessions.drop_expired(ages, 5)\n    assert result == original\n    assert result is ages\n\n\ndef test_drop_expired_all_removed():\n    ages = [7, 8, 9]\n    result = sessions.drop_expired(ages, 5)\n    assert result == []\n    assert result is ages\n\n\ndef test_drop_expired_empty_list():\n    ages = []\n    result = sessions.drop_expired(ages, 10)\n    assert result == []\n    assert result is ages\n\n\ndef test_drop_expired_duplicates_and_multiple_removals():\n    ages = [5, 5, 6, 6, 5]\n    result = sessions.drop_expired(ages, 5)\n    # All values greater than 5 should be removed, keeping all 5s\n    assert result == [5, 5, 5]\n    assert result is ages\n",
+      "test_verdicts": [
+        {
+          "test": "test_drop_expired_basic_behavior",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_drop_expired_no_removal",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_drop_expired_all_removed",
+          "verdict": "possible bug",
+          "message": "assert [8] == []\n  \n  Left contains one more item: 8\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_drop_expired_empty_list",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_drop_expired_duplicates_and_multiple_removals",
+          "verdict": "possible bug",
+          "message": "assert [5, 5, 6, 5] == [5, 5, 5]\n  \n  At index 2 diff: 6 != 5\n  Left contains one more item: 5\n  Use -v to get more diff"
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "14_multipliers",
+      "bug_type": "late-binding closure",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 967,
+      "cache_read_tokens": 256,
+      "output_tokens": 1096,
+      "cost_usd": 0.0007834500000000001,
+      "latency_seconds": 3.3695746999874245,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "factory.py",
+          "line": 6,
+          "severity": "medium",
+          "message": "All returned lambdas capture the same loop variable 'factor', so each multiplier uses the final value (count-1) instead of its own index, leading to incorrect multiplication results.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\nimport factory\n\n\ndef test_zero_count_returns_empty_list():\n    \"\"\"When count is zero, the result should be an empty list of callables.\"\"\"\n    result = factory.make_multipliers(0)\n    assert isinstance(result, list)\n    assert result == []\n\n\ndef test_single_multiplier():\n    \"\"\"A single multiplier should multiply by its index 0, i.e., always return 0.\"\"\"\n    multipliers = factory.make_multipliers(1)\n    assert len(multipliers) == 1\n    f = multipliers[0]\n    for val in [-10, 0, 7, 123]:\n        assert f(val) == val * 0\n\n\ndef test_multiple_multipliers_correctness():\n    \"\"\"Each function at index i must multiply its argument by i.\"\"\"\n    count = 5\n    multipliers = factory.make_multipliers(count)\n    assert len(multipliers) == count\n    test_values = [0, 1, -3, 7]\n    for i, func in enumerate(multipliers):\n        for v in test_values:\n            assert func(v) == v * i, f\"Multiplier at index {i} gave wrong result for input {v}\"\n\n\ndef test_multipliers_are_independent():\n    \"\"\"Calling one multiplier should not affect the result of another.\"\"\"\n    multipliers = factory.make_multipliers(4)\n    # Capture results of each multiplier for the same input\n    input_val = 5\n    results = [fn(input_val) for fn in multipliers]\n    expected = [input_val * i for i in range(4)]\n    assert results == expected\n    # Call again to ensure consistency\n    results_again = [fn(input_val) for fn in multipliers]\n    assert results_again == expected\n\n\ndef test_negative_count_behaviour():\n    \"\"\"A negative count should behave like zero and return an empty list.\"\"\"\n    result = factory.make_multipliers(-3)\n    assert result == []\n",
+      "test_verdicts": [
+        {
+          "test": "test_zero_count_returns_empty_list",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_single_multiplier",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_multiple_multipliers_correctness",
+          "verdict": "possible bug",
+          "message": "AssertionError: Multiplier at index 0 gave wrong result for input 1\nassert 4 == (1 * 0)\n +  where 4 = <function make_multipliers.<locals>.<listcomp>.<lambda> at 0x00000273E4F2FCE0>(1)"
+        },
+        {
+          "test": "test_multipliers_are_independent",
+          "verdict": "possible bug",
+          "message": "assert [15, 15, 15, 15] == [0, 5, 10, 15]\n  \n  At index 0 diff: 15 != 0\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_negative_count_behaviour",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "15_status",
+      "bug_type": "identity instead of equality",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 9,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 915,
+      "cache_read_tokens": 256,
+      "output_tokens": 1051,
+      "cost_usd": 0.00074865,
+      "latency_seconds": 3.002518200009945,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "orders.py",
+          "line": 3,
+          "severity": "medium",
+          "message": "The function uses the 'is' operator to compare strings, which checks object identity rather than value equality; it may return False even when the status is \"shipped\". Use '==' for correct comparison.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nfrom orders import is_shipped\n\n@pytest.mark.parametrize(\n    \"input_status,expected\",\n    [\n        (\"shipped\", True),\n        (\"ShIpPeD\", True),\n        (\"SHIPPED\", True),\n        (\"not shipped\", False),\n        (\"\", False),\n        (\" shipped\", False),\n    ],\n)\ndef test_is_shipped_various_cases(input_status, expected):\n    \"\"\"Verify that is_shipped returns True only for the exact word 'shipped' irrespective of case.\"\"\"\n    assert is_shipped(input_status) is expected\n\ndef test_is_shipped_whitespace_handling():\n    \"\"\"The function should not treat surrounding whitespace as a match.\"\"\"\n    assert is_shipped(\" shipped \") is False\n    assert is_shipped(\"shipped \") is False\n    assert is_shipped(\" shipped\") is False\n\ndef test_is_shipped_non_string_input():\n    \"\"\"Passing a non\u2011string (e.g., None) should raise an AttributeError because .lower() is missing.\"\"\"\n    with pytest.raises(AttributeError):\n        is_shipped(None)\n\ndef test_is_shipped_numeric_string():\n    \"\"\"A numeric string should simply be compared and thus return False.\"\"\"\n    assert is_shipped(\"123\") is False\n",
+      "test_verdicts": [
+        {
+          "test": "test_is_shipped_various_cases[shipped-True]",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert False is True\n +  where False = is_shipped('shipped')"
+        },
+        {
+          "test": "test_is_shipped_various_cases[ShIpPeD-True]",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert False is True\n +  where False = is_shipped('ShIpPeD')"
+        },
+        {
+          "test": "test_is_shipped_various_cases[SHIPPED-True]",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert False is True\n +  where False = is_shipped('SHIPPED')"
+        },
+        {
+          "test": "test_is_shipped_various_cases[not shipped-False]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_shipped_various_cases[-False]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_shipped_various_cases[ shipped-False]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_shipped_whitespace_handling",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_shipped_non_string_input",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_shipped_numeric_string",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "16_grid",
+      "bug_type": "shared inner list",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 928,
+      "cache_read_tokens": 512,
+      "output_tokens": 1327,
+      "cost_usd": 0.000897,
+      "latency_seconds": 3.965879800001858,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "board.py",
+          "line": 3,
+          "severity": "medium",
+          "message": "The function returns a grid where all rows reference the same list (using [[0] * columns] * rows), so modifying one cell changes the entire column across rows, contradicting the docstring that cells can be changed independently.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nimport board\n\ndef test_empty_grid_shape():\n    rows, cols = 3, 4\n    grid = board.empty_grid(rows, cols)\n    assert isinstance(grid, list)\n    assert len(grid) == rows\n    for row in grid:\n        assert isinstance(row, list)\n        assert len(row) == cols\n        assert all(cell == 0 for cell in row)\n\ndef test_cells_are_independent():\n    rows, cols = 2, 2\n    grid = board.empty_grid(rows, cols)\n    grid[0][0] = 1\n    # Expect only the modified cell to change\n    assert grid[0][0] == 1\n    assert grid[0][1] == 0\n    assert grid[1][0] == 0\n    assert grid[1][1] == 0\n\ndef test_zero_dimensions():\n    assert board.empty_grid(0, 5) == []\n    assert board.empty_grid(3, 0) == [[], [], []]\n\ndef test_negative_dimensions():\n    # Negative rows should behave like zero rows (empty list)\n    assert board.empty_grid(-2, 3) == []\n    # Negative columns produce empty inner lists\n    assert board.empty_grid(2, -3) == [[], []]\n\ndef test_invalid_types():\n    with pytest.raises(TypeError):\n        board.empty_grid(\"3\", 4)\n    with pytest.raises(TypeError):\n        board.empty_grid(3, \"4\")\n",
+      "test_verdicts": [
+        {
+          "test": "test_empty_grid_shape",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_cells_are_independent",
+          "verdict": "possible bug",
+          "message": "assert 1 == 0"
+        },
+        {
+          "test": "test_zero_dimensions",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_negative_dimensions",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_invalid_types",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "17_warmest",
+      "bug_type": "wrong initial value",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 1,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 968,
+      "cache_read_tokens": 0,
+      "output_tokens": 946,
+      "cost_usd": 0.0007128,
+      "latency_seconds": 2.964655000003404,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "weather.py",
+          "line": 3,
+          "severity": "medium",
+          "message": "Initializing `highest` to 0.0 causes incorrect results when all temperature readings are negative; the function will return 0.0 instead of the actual maximum. Initialize with the first list element or use `float('-inf')`.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nfrom weather import highest_temperature\n\ndef test_highest_temperature_regular():\n    readings = [10.5, 23.2, 5.0]\n    assert highest_temperature(readings) == 23.2\n\ndef test_highest_temperature_all_negative():\n    readings = [-10.0, -2.5, -30.1]\n    assert highest_temperature(readings) == -2.5\n\ndef test_highest_temperature_single_element():\n    readings = [42.0]\n    assert highest_temperature(readings) == 42.0\n\ndef test_highest_temperature_with_duplicates():\n    readings = [7.0, 7.0, 3.0]\n    assert highest_temperature(readings) == 7.0\n\ndef test_highest_temperature_empty_raises():\n    with pytest.raises(ValueError):\n        highest_temperature([])\n",
+      "test_verdicts": [
+        {
+          "test": "test_highest_temperature_regular",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_highest_temperature_all_negative",
+          "verdict": "possible bug",
+          "message": "assert 0.0 == -2.5\n +  where 0.0 = highest_temperature([-10.0, -2.5, -30.1])"
+        },
+        {
+          "test": "test_highest_temperature_single_element",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_highest_temperature_with_duplicates",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_highest_temperature_empty_raises",
+          "verdict": "bad test",
+          "message": "Failed: DID NOT RAISE ValueError"
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "18_all_positive",
+      "bug_type": "early return in loop",
+      "caught_by_review": true,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 952,
+      "cache_read_tokens": 256,
+      "output_tokens": 780,
+      "cost_usd": 0.0005916000000000001,
+      "latency_seconds": 2.8048186999949394,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "validation.py",
+          "line": 6,
+          "severity": "medium",
+          "message": "The function returns True inside the loop after checking only the first element, so it may report True even when later elements are non\u2011positive.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\nimport validation\n\n@pytest.mark.parametrize(\n    \"input_list,expected\",\n    [\n        ([], True),                # empty list should be considered all positive\n        ([5], True),               # single positive value\n        ([1, 2, 3, 10], True),     # all positive values\n        ([0, 1, 2], False),        # contains zero (non\u2011positive)\n        ([-3, 4, 5], False),       # contains a negative value\n    ],\n)\ndef test_all_positive_expected_behavior(input_list, expected):\n    \"\"\"Validate that ``all_positive`` returns True only when every element is > 0.\n\n    The function's docstring specifies this contract, even though the current\n    implementation returns after checking the first element.\n    \"\"\"\n    assert validation.all_positive(input_list) == expected\n",
+      "test_verdicts": [
+        {
+          "test": "test_all_positive_expected_behavior[input_list0-True]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_all_positive_expected_behavior[input_list1-True]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_all_positive_expected_behavior[input_list2-True]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_all_positive_expected_behavior[input_list3-False]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_all_positive_expected_behavior[input_list4-False]",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "19_download",
+      "bug_type": "path traversal",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 964,
+      "cache_read_tokens": 256,
+      "output_tokens": 1160,
+      "cost_usd": 0.0008213999999999999,
+      "latency_seconds": 3.219989600009285,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "storage.py",
+          "line": 7,
+          "severity": "high",
+          "message": "The function claims to raise ValueError when the resulting path is outside `base`, but it never checks that condition, so callers can obtain paths outside the intended directory, creating a directory\u2011traversal security hole.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nfrom pathlib import Path\nimport storage\n\ndef test_resolve_upload_simple(tmp_path):\n    base = tmp_path\n    name = \"file.txt\"\n    result = storage.resolve_upload(base, name)\n    expected = (base / name).resolve()\n    assert result == expected\n    assert result.is_absolute()\n    # ensure result is inside base (or equal to base if name empty)\n    assert base in result.parents or result == base\n\ndef test_resolve_upload_empty_name(tmp_path):\n    base = tmp_path\n    result = storage.resolve_upload(base, \"\")\n    expected = base.resolve()\n    assert result == expected\n    assert result.is_absolute()\n\ndef test_resolve_upload_dot_name(tmp_path):\n    base = tmp_path\n    result = storage.resolve_upload(base, \".\")\n    expected = base.resolve()\n    assert result == expected\n    assert result.is_absolute()\n\ndef test_resolve_upload_outside_via_parent(tmp_path):\n    base = tmp_path\n    # name that navigates outside the base directory\n    name = \"..\" + \"/outside.txt\"\n    with pytest.raises(ValueError):\n        storage.resolve_upload(base, name)\n\ndef test_resolve_upload_absolute_path_outside(tmp_path):\n    base = tmp_path\n    # use an absolute path that is definitely not inside the temporary base\n    outside_path = Path(\"/etc/passwd\")\n    with pytest.raises(ValueError):\n        storage.resolve_upload(base, str(outside_path))\n",
+      "test_verdicts": [
+        {
+          "test": "test_resolve_upload_simple",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_resolve_upload_empty_name",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_resolve_upload_dot_name",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_resolve_upload_outside_via_parent",
+          "verdict": "possible bug",
+          "message": "Failed: DID NOT RAISE ValueError"
+        },
+        {
+          "test": "test_resolve_upload_absolute_path_outside",
+          "verdict": "possible bug",
+          "message": "Failed: DID NOT RAISE ValueError"
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "20_success_rate",
+      "bug_type": "unhandled empty input",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 8,
+      "bad_tests": 1,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 921,
+      "cache_read_tokens": 0,
+      "output_tokens": 1039,
+      "cost_usd": 0.0007615499999999999,
+      "latency_seconds": 3.3118342000088887,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "metrics.py",
+          "line": 3,
+          "severity": "high",
+          "message": "Division by zero occurs when results is empty, contradicting the docstring that says it should return 0.0. This will crash the program.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nimport metrics\n\n@pytest.mark.parametrize(\n    \"results,expected\",\n    [\n        ([True, False, True, True], 0.75),\n        ([False, False, False], 0.0),\n        ([True, True, True, True], 1.0),\n        ([True], 1.0),\n        ([], 0.0),\n    ],\n)\ndef test_success_rate_various(results, expected):\n    \"\"\"Test success_rate with typical, edge, and empty inputs.\"\"\"\n    assert metrics.success_rate(results) == pytest.approx(expected)\n\ndef test_success_rate_non_boolean_values():\n    \"\"\"Even though the type hint expects bools, the function should treat 1/0 as True/False.\n    The expected share is calculated based on truthiness of each element.\n    \"\"\"\n    results = [1, 0, 1, 2]  # 1 and 2 are truthy, 0 is falsy\n    # Truthy count = 3, total = 4 => 0.75\n    assert metrics.success_rate(results) == pytest.approx(0.75)\n\ndef test_success_rate_return_type():\n    \"\"\"The function should always return a float, even for empty or single-element lists.\"\"\"\n    assert isinstance(metrics.success_rate([]), float)\n    assert isinstance(metrics.success_rate([True]), float)\n    assert isinstance(metrics.success_rate([False, True]), float)\n\ndef test_success_rate_bounds():\n    \"\"\"Result should always be within the inclusive range [0.0, 1.0].\"\"\"\n    for results in ([True, False], [False], [True], []):\n        rate = metrics.success_rate(results)\n        assert 0.0 <= rate <= 1.0\n",
+      "test_verdicts": [
+        {
+          "test": "test_success_rate_various[results0-0.75]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_success_rate_various[results1-0.0]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_success_rate_various[results2-1.0]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_success_rate_various[results3-1.0]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_success_rate_various[results4-0.0]",
+          "verdict": "possible bug",
+          "message": "ZeroDivisionError: division by zero"
+        },
+        {
+          "test": "test_success_rate_non_boolean_values",
+          "verdict": "bad test",
+          "message": "assert 1.0 == 0.75 \u00b1 7.5e-07\n  \n  comparison failed\n  Obtained: 1.0\n  Expected: 0.75 \u00b1 7.5e-07"
+        },
+        {
+          "test": "test_success_rate_return_type",
+          "verdict": "possible bug",
+          "message": "ZeroDivisionError: division by zero"
+        },
+        {
+          "test": "test_success_rate_bounds",
+          "verdict": "possible bug",
+          "message": "ZeroDivisionError: division by zero"
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "21_recent",
+      "bug_type": "slice boundary",
+      "caught_by_review": false,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 7,
+      "bad_tests": 1,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 919,
+      "cache_read_tokens": 0,
+      "output_tokens": 976,
+      "cost_usd": 0.0007234499999999999,
+      "latency_seconds": 2.985897799997474,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "history.py",
+          "line": 1,
+          "severity": "medium",
+          "message": "When count is 0, entries[-0:] returns the whole list instead of an empty list, contradicting the docstring and expected behavior.",
+          "on_bug_line": false
+        }
+      ],
+      "test_code": "import pytest\nfrom history import latest\n\ndef test_latest_basic():\n    entries = [\"a\", \"b\", \"c\", \"d\", \"e\"]\n    # Request last 2 entries\n    result = latest(entries, 2)\n    assert result == [\"d\", \"e\"]\n\ndef test_latest_zero_returns_empty():\n    entries = [\"x\", \"y\", \"z\"]\n    result = latest(entries, 0)\n    assert result == []\n\n@pytest.mark.parametrize(\n    \"entries, count, expected\",\n    [\n        ([], 0, []),\n        ([\"only\"], 1, [\"only\"]),\n        ([\"a\", \"b\", \"c\"], 3, [\"a\", \"b\", \"c\"]),\n        ([\"a\", \"b\", \"c\"], 5, [\"a\", \"b\", \"c\"]),\n    ],\n)\ndef test_latest_boundary_conditions(entries, count, expected):\n    assert latest(entries, count) == expected\n\ndef test_latest_negative_count_raises():\n    entries = [\"a\", \"b\"]\n    with pytest.raises(ValueError):\n        latest(entries, -1)\n",
+      "test_verdicts": [
+        {
+          "test": "test_latest_basic",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_latest_zero_returns_empty",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert ['x', 'y', 'z'] == []\n  \n  Left contains 3 more items, first extra item: 'x'\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_latest_boundary_conditions[entries0-0-expected0]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_latest_boundary_conditions[entries1-1-expected1]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_latest_boundary_conditions[entries2-3-expected2]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_latest_boundary_conditions[entries3-5-expected3]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_latest_negative_count_raises",
+          "verdict": "bad test",
+          "message": "Failed: DID NOT RAISE ValueError"
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "22_word_counts",
+      "bug_type": "missing dictionary default",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 964,
+      "cache_read_tokens": 256,
+      "output_tokens": 874,
+      "cost_usd": 0.0006498,
+      "latency_seconds": 2.6819313000014517,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "frequency.py",
+          "line": 5,
+          "severity": "high",
+          "message": "counts[word] += 1 raises KeyError because the key may not exist in the dict, causing a crash on any non\u2011empty input.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\nimport frequency\n\n\ndef test_count_words_basic_sentence():\n    text = \"The quick brown fox jumps over the lazy dog the the\"\n    result = frequency.count_words(text)\n    expected = {\n        \"the\": 4,\n        \"quick\": 1,\n        \"brown\": 1,\n        \"fox\": 1,\n        \"jumps\": 1,\n        \"over\": 1,\n        \"lazy\": 1,\n        \"dog\": 1,\n    }\n    assert result == expected\n\n\ndef test_count_words_case_insensitivity():\n    text = \"Hello hello HELLO HeLLo\"\n    result = frequency.count_words(text)\n    assert result == {\"hello\": 4}\n\n\ndef test_count_words_empty_string():\n    assert frequency.count_words(\"\") == {}\n\n\ndef test_count_words_whitespace_variations():\n    text = \"   spaced   out\\nnew\\tline   \"\n    result = frequency.count_words(text)\n    # split on any whitespace, lowercasing each token\n    expected = {\"spaced\": 1, \"out\": 1, \"new\": 1, \"line\": 1}\n    assert result == expected\n\n\ndef test_count_words_non_string_input_raises_attribute_error():\n    with pytest.raises(AttributeError):\n        # int does not have .lower(), causing AttributeError before any logic runs\n        frequency.count_words(123)\n",
+      "test_verdicts": [
+        {
+          "test": "test_count_words_basic_sentence",
+          "verdict": "possible bug",
+          "message": "KeyError: 'the'"
+        },
+        {
+          "test": "test_count_words_case_insensitivity",
+          "verdict": "possible bug",
+          "message": "KeyError: 'hello'"
+        },
+        {
+          "test": "test_count_words_empty_string",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_count_words_whitespace_variations",
+          "verdict": "possible bug",
+          "message": "KeyError: 'spaced'"
+        },
+        {
+          "test": "test_count_words_non_string_input_raises_attribute_error",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "23_factorial",
+      "bug_type": "missing base case",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 1,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 945,
+      "cache_read_tokens": 512,
+      "output_tokens": 970,
+      "cost_usd": 0.0006853499999999999,
+      "latency_seconds": 3.08700700000918,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "combinatorics.py",
+          "line": 3,
+          "severity": "high",
+          "message": "The factorial function only checks for number == 1 as the base case; calling factorial(0) or a negative integer triggers infinite recursion and eventually raises RecursionError.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\nimport combinatorics\n\ndef test_factorial_of_zero():\n    assert combinatorics.factorial(0) == 1\n\ndef test_factorial_of_one():\n    assert combinatorics.factorial(1) == 1\n\ndef test_factorial_of_five():\n    assert combinatorics.factorial(5) == 120\n\ndef test_factorial_of_ten():\n    assert combinatorics.factorial(10) == 3628800\n\ndef test_factorial_negative_raises_recursion_error():\n    with pytest.raises(RecursionError):\n        combinatorics.factorial(-1)\n",
+      "test_verdicts": [
+        {
+          "test": "test_factorial_of_zero",
+          "verdict": "possible bug",
+          "message": "RecursionError: maximum recursion depth exceeded"
+        },
+        {
+          "test": "test_factorial_of_one",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_factorial_of_five",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_factorial_of_ten",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_factorial_negative_raises_recursion_error",
+          "verdict": "bad test",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "24_summary",
+      "bug_type": "iterator used twice",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 969,
+      "cache_read_tokens": 256,
+      "output_tokens": 1116,
+      "cost_usd": 0.00079575,
+      "latency_seconds": 2.9984937999979593,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "reporting.py",
+          "line": 7,
+          "severity": "medium",
+          "message": "len(list(amounts)) re-iterates the iterable after sum() has consumed it, so for generators or one\u2011time iterators the count will be 0 (and may cause hangs on infinite iterables).",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nfrom reporting import total_and_count\n\ndef test_total_and_count_with_list():\n    amounts = [1, 2, 3]\n    total, count = total_and_count(amounts)\n    assert total == 6\n    assert count == 3\n\ndef test_total_and_count_with_tuple():\n    amounts = (4, 5, 6)\n    total, count = total_and_count(amounts)\n    assert total == 15\n    assert count == 3\n\ndef test_total_and_count_with_generator():\n    amounts = (i for i in range(5))  # 0,1,2,3,4\n    total, count = total_and_count(amounts)\n    assert total == 10\n    assert count == 5\n\ndef test_total_and_count_empty_iterable():\n    amounts = []\n    total, count = total_and_count(amounts)\n    assert total == 0\n    assert count == 0\n\ndef test_total_and_count_mixed_numbers():\n    amounts = [10, -2, 0, 7]\n    total, count = total_and_count(amounts)\n    assert total == 15\n    assert count == 4\n",
+      "test_verdicts": [
+        {
+          "test": "test_total_and_count_with_list",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_total_and_count_with_tuple",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_total_and_count_with_generator",
+          "verdict": "possible bug",
+          "message": "assert 0 == 5"
+        },
+        {
+          "test": "test_total_and_count_empty_iterable",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_total_and_count_mixed_numbers",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "25_ping",
+      "bug_type": "shell injection",
+      "caught_by_review": false,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 5,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 946,
+      "cache_read_tokens": 512,
+      "output_tokens": 1307,
+      "cost_usd": 0.0008877000000000002,
+      "latency_seconds": 5.124566799990134,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "network.py",
+          "line": 5,
+          "severity": "high",
+          "message": "Using shell=True with an f\u2011string that inserts the raw host argument enables command injection if host is attacker\u2011controlled. This is a security vulnerability; the command should be run without a shell or the host should be safely quoted/sanitized.",
+          "on_bug_line": false
+        }
+      ],
+      "test_code": "import builtins\nimport types\nimport pytest\n\nimport network\n\nclass DummyResult:\n    def __init__(self, returncode):\n        self.returncode = returncode\n\ndef make_run_spy(captured):\n    \"\"\"Factory that returns a fake subprocess.run function.\n    It records the command string it was called with in *captured* and returns\n    a DummyResult with the desired *returncode*.\n    \"\"\"\n    def _run(cmd, *args, **kwargs):\n        # Record the exact command string for later inspection.\n        captured['cmd'] = cmd\n        # Use a deterministic returncode based on the command content if not\n        # overridden by the test via ``captured['code']``.\n        returncode = captured.get('code', 0)\n        return DummyResult(returncode)\n    return _run\n\n@pytest.mark.parametrize(\n    \"host, expected_code\",\n    [\n        (\"example.com\", 0),\n        (\"nonexistent.invalid\", 1),\n        (\"\", 2),\n    ],\n)\ndef test_ping_returns_subprocess_exit_code(monkeypatch, host, expected_code):\n    \"\"\"Ping should return the exit code that subprocess.run reports.\n\n    The real subprocess call is replaced by a stub that simply returns the\n    ``expected_code`` we specify for each parametrised case.\n    \"\"\"\n    captured = {\"code\": expected_code}\n    monkeypatch.setattr(network, \"subprocess\", types.SimpleNamespace(run=make_run_spy(captured)))\n    assert network.ping(host) == expected_code\n    # Ensure the generated command contains the supplied host.\n    assert captured[\"cmd\"].endswith(f\" {host}\")\n\ndef test_ping_command_structure(monkeypatch):\n    \"\"\"The command passed to ``subprocess.run`` should follow the expected pattern.\n\n    This test verifies that the function builds a command string that starts with\n    ``ping -c 1`` and that the host appears exactly once.\n    \"\"\"\n    captured = {}\n    monkeypatch.setattr(network, \"subprocess\", types.SimpleNamespace(run=make_run_spy(captured)))\n    host = \"my-host\"\n    network.ping(host)\n    cmd = captured.get(\"cmd\")\n    assert cmd is not None\n    # The command must start with the ping invocation and contain the host.\n    assert cmd.startswith(\"ping -c 1 \")\n    assert cmd.split()[-1] == host\n\ndef test_ping_with_none_raises_type_error(monkeypatch):\n    \"\"\"Passing a non\u2011string (e.g., ``None``) should raise a ``TypeError``.\n\n    The function uses an f\u2011string to embed the host, which will raise a\n    ``TypeError`` when the argument is not a string.  We confirm this behaviour.\n    \"\"\"\n    # Even though we replace ``subprocess.run`` we never reach it because the\n    # formatting itself fails.\n    monkeypatch.setattr(network, \"subprocess\", types.SimpleNamespace(run=lambda *a, **k: None))\n    with pytest.raises(TypeError):\n        network.ping(None)\n",
+      "test_verdicts": [
+        {
+          "test": "test_ping_returns_subprocess_exit_code[example.com-0]",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_ping_returns_subprocess_exit_code[nonexistent.invalid-1]",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_ping_returns_subprocess_exit_code[-2]",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_ping_command_structure",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_ping_with_none_raises_type_error",
+          "verdict": "bad test",
+          "message": "AttributeError: 'NoneType' object has no attribute 'returncode'"
+        }
+      ]
+    },
+    {
+      "configuration": "baseline",
+      "case": "26_counter",
+      "bug_type": "lock not released",
+      "caught_by_review": true,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 1,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 988,
+      "cache_read_tokens": 0,
+      "output_tokens": 1345,
+      "cost_usd": 0.0009552,
+      "latency_seconds": 3.440227600003709,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "counter.py",
+          "line": 9,
+          "severity": "high",
+          "message": "If the provided `action` raises an exception, `lock.release()` is never called, leaving the lock permanently acquired and causing a deadlock for subsequent calls.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import threading\nimport pytest\nimport time\n\nimport counter\n\n\ndef test_run_locked_returns_action_result():\n    def action():\n        return 42\n    result = counter.run_locked(action)\n    assert result == 42\n\n\ndef test_lock_is_held_during_action():\n    # Event to signal that action has started\n    started = threading.Event()\n    # Event to let action finish\n    finish = threading.Event()\n\n    def action():\n        started.set()\n        # Wait until main thread tells us to finish\n        finish.wait(timeout=5)\n        return \"done\"\n\n    # Run run_locked in a separate thread so we can inspect the lock state\n    thread = threading.Thread(target=lambda: counter.run_locked(action))\n    thread.start()\n\n    # Wait for the action to start and thus hold the lock\n    assert started.wait(timeout=1), \"Action did not start in time\"\n\n    # While the action holds the lock, another thread should NOT be able to acquire it immediately\n    lock_acquired = counter.lock.acquire(blocking=False)\n    assert not lock_acquired, \"Lock should be held by run_locked during action\"\n    # Clean up: let the action finish\n    finish.set()\n    thread.join()\n\n    # After the action finishes, the lock should be free again\n    assert counter.lock.acquire(blocking=False), \"Lock should be released after run_locked returns\"\n    # Release the lock we just acquired for the assertion\n    counter.lock.release()\n\n\ndef test_lock_is_free_after_successful_call():\n    def action():\n        return None\n    # Ensure lock is free before the call\n    assert counter.lock.acquire(blocking=False)\n    counter.lock.release()\n\n    counter.run_locked(action)\n\n    # After run_locked, we should be able to acquire the lock again\n    assert counter.lock.acquire(blocking=False)\n    counter.lock.release()\n\n\ndef test_action_is_called_exactly_once():\n    call_counter = {'count': 0}\n    def action():\n        call_counter['count'] += 1\n        return 0\n    counter.run_locked(action)\n    assert call_counter['count'] == 1\n\n\ndef test_exception_leaves_lock_locked():\n    def failing_action():\n        raise RuntimeError(\"boom\")\n    with pytest.raises(RuntimeError):\n        counter.run_locked(failing_action)\n    # After the exception, the lock should still be held (i.e., cannot acquire without blocking)\n    assert not counter.lock.acquire(blocking=False), \"Lock should remain held after exception (current implementation)\"\n",
+      "test_verdicts": [
+        {
+          "test": "test_run_locked_returns_action_result",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_lock_is_held_during_action",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_lock_is_free_after_successful_call",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_action_is_called_exactly_once",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_exception_leaves_lock_locked",
+          "verdict": "bad test",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "01_pagination",
+      "bug_type": "off-by-one",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 965,
+      "cache_read_tokens": 0,
+      "output_tokens": 2680,
+      "cost_usd": 0.000876375,
+      "latency_seconds": 3.8582078000035835,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "pagination.py",
+          "line": 3,
+          "severity": "medium",
+          "message": "The start index is calculated as (page-1)*size+1, which is 1-based. Python lists are 0-based, so this causes the first element of each page to be omitted and misaligns the pagination. The correct formula should be (page-1)*size.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nimport pagination\n\ndef test_page_items_normal():\n    items = ['a', 'b', 'c', 'd', 'e']\n    assert pagination.page_items(items, 1, 2) == ['a', 'b']\n    assert pagination.page_items(items, 2, 2) == ['c', 'd']\n    assert pagination.page_items(items, 3, 2) == ['e']\n\ndef test_page_items_empty():\n    items = []\n    assert pagination.page_items(items, 1, 2) == []\n    assert pagination.page_items(items, 10, 5) == []\n\ndef test_page_items_out_of_range():\n    items = ['x', 'y', 'z']\n    assert pagination.page_items(items, 4, 1) == []\n    assert pagination.page_items(items, 0, 1) == []\n\ndef test_page_items_size_larger_than_list():\n    items = ['p', 'q', 'r']\n    assert pagination.page_items(items, 1, 5) == ['p', 'q', 'r']\n    assert pagination.page_items(items, 2, 5) == []\n\ndef test_page_items_zero_size():\n    items = ['a', 'b', 'c']\n    assert pagination.page_items(items, 1, 0) == []\n    assert pagination.page_items(items, 2, 0) == []",
+      "test_verdicts": [
+        {
+          "test": "test_page_items_normal",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert ['b', 'c'] == ['a', 'b']\n  \n  At index 0 diff: 'b' != 'a'\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_page_items_empty",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_page_items_out_of_range",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert ['x'] == []\n  \n  Left contains one more item: 'x'\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_page_items_size_larger_than_list",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert ['q', 'r'] == ['p', 'q', 'r']\n  \n  At index 0 diff: 'q' != 'p'\n  Right contains one more item: 'r'\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_page_items_zero_size",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "02_discount",
+      "bug_type": "wrong operator",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 939,
+      "cache_read_tokens": 256,
+      "output_tokens": 1594,
+      "cost_usd": 0.000538897,
+      "latency_seconds": 2.487363299980643,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "pricing.py",
+          "line": 4,
+          "severity": "medium",
+          "message": "The function returns `price + discount` instead of `price - discount`, causing the discounted price to be higher than the original. This leads to incorrect results whenever the function is used.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nfrom pricing import discounted_price\n\n# 1. Basic discount scenario\n\ndef test_basic_discount():\n    price = 200.0\n    percent = 25.0\n    expected = round(price - price * percent / 100, 2)\n    assert discounted_price(price, percent) == expected\n\n# 2. Zero percent discount should return the original price\n\ndef test_zero_percent():\n    price = 50.0\n    percent = 0.0\n    expected = price\n    assert discounted_price(price, percent) == expected\n\n# 3. 100 percent discount should reduce price to zero\n\ndef test_full_percent():\n    price = 80.0\n    percent = 100.0\n    expected = 0.0\n    assert discounted_price(price, percent) == expected\n\n# 4. Rounding behavior \u2013 ensure two decimal places are respected\n\ndef test_rounding():\n    price = 99.99\n    percent = 33.0\n    expected = round(price - price * percent / 100, 2)\n    assert discounted_price(price, percent) == expected\n\n# 5. Negative percent should effectively increase the price\n\ndef test_negative_percent():\n    price = 100.0\n    percent = -20.0\n    expected = round(price - price * percent / 100, 2)\n    assert discounted_price(price, percent) == expected\n",
+      "test_verdicts": [
+        {
+          "test": "test_basic_discount",
+          "verdict": "possible bug",
+          "message": "assert 250.0 == 150.0\n +  where 250.0 = discounted_price(200.0, 25.0)"
+        },
+        {
+          "test": "test_zero_percent",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_full_percent",
+          "verdict": "possible bug",
+          "message": "assert 160.0 == 0.0\n +  where 160.0 = discounted_price(80.0, 100.0)"
+        },
+        {
+          "test": "test_rounding",
+          "verdict": "possible bug",
+          "message": "assert 132.99 == 66.99\n +  where 132.99 = discounted_price(99.99, 33.0)"
+        },
+        {
+          "test": "test_negative_percent",
+          "verdict": "possible bug",
+          "message": "assert 80.0 == 120.0\n +  where 80.0 = discounted_price(100.0, -20.0)"
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "03_user_email",
+      "bug_type": "missing None check",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 4,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 971,
+      "cache_read_tokens": 0,
+      "output_tokens": 1232,
+      "cost_usd": 0.00044242500000000003,
+      "latency_seconds": 2.1582367999944836,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "accounts.py",
+          "line": 4,
+          "severity": "high",
+          "message": "The function does not guard against missing users; if user_id is not in the dictionary, users.get(user_id) returns None, causing a TypeError when trying to subscript with user[\"email\"]. This will crash the program when an unknown user_id is passed.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nimport accounts\n\n\ndef test_email_domain_returns_correct_domain():\n    users = {1: {\"email\": \"alice@example.com\"}}\n    assert accounts.email_domain(users, 1) == \"example.com\"\n\n\ndef test_email_domain_returns_none_when_user_missing():\n    users = {}\n    assert accounts.email_domain(users, 42) is None\n\n\ndef test_email_domain_handles_multiple_at_signs():\n    users = {1: {\"email\": \"a@b@c.com\"}}\n    assert accounts.email_domain(users, 1) == \"c.com\"\n\n\ndef test_email_domain_with_empty_email():\n    users = {1: {\"email\": \"\"}}\n    assert accounts.email_domain(users, 1) == \"\"\n",
+      "test_verdicts": [
+        {
+          "test": "test_email_domain_returns_correct_domain",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_email_domain_returns_none_when_user_missing",
+          "verdict": "possible bug",
+          "message": "TypeError: 'NoneType' object is not subscriptable"
+        },
+        {
+          "test": "test_email_domain_handles_multiple_at_signs",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_email_domain_with_empty_email",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "04_tags",
+      "bug_type": "mutable default argument",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 944,
+      "cache_read_tokens": 256,
+      "output_tokens": 1792,
+      "cost_usd": 0.000598672,
+      "latency_seconds": 2.927590000006603,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "tagging.py",
+          "line": 1,
+          "severity": "medium",
+          "message": "Mutable default argument `tags=[]` leads to tags being shared across calls; subsequent calls will accumulate tags unexpectedly.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nfrom tagging import add_tag\n\n\ndef test_add_tag_new_list():\n    # Calling without an explicit tags list should create a new list containing the tag\n    result = add_tag('python')\n    assert isinstance(result, list)\n    assert result == ['python']\n    # Subsequent calls should not affect the previously returned list\n    result2 = add_tag('java')\n    assert result2 == ['java']\n    assert result == ['python']\n\n\ndef test_add_tag_with_existing_list():\n    tags = ['existing']\n    result = add_tag('new', tags)\n    # The function should return the same list object\n    assert result is tags\n    assert tags == ['existing', 'new']\n\n\ndef test_add_tag_mutation():\n    tags = []\n    add_tag('tag1', tags)\n    # The original list should be mutated\n    assert tags == ['tag1']\n\n\ndef test_add_tag_empty_string():\n    result = add_tag('')\n    assert result == ['']\n\n\ndef test_add_tag_multiple_calls_new_list():\n    # Each call with the default argument should return a distinct list\n    r1 = add_tag('a')\n    r2 = add_tag('b')\n    r3 = add_tag('c')\n    assert r1 == ['a'] and r2 == ['b'] and r3 == ['c']\n    assert r1 is not r2 and r2 is not r3\n",
+      "test_verdicts": [
+        {
+          "test": "test_add_tag_new_list",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert ['python', 'java'] == ['java']\n  \n  At index 0 diff: 'python' != 'java'\n  Left contains one more item: 'java'\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_add_tag_with_existing_list",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_add_tag_mutation",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_add_tag_empty_string",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert ['python', 'java', ''] == ['']\n  \n  At index 0 diff: 'python' != ''\n  Left contains 2 more items, first extra item: 'java'\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_add_tag_multiple_calls_new_list",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert (['python', 'j...'a', 'b', 'c'] == ['a']\n  \n  At index 0 diff: 'python' != 'a'\n  Left contains 5 more items, first extra item: 'java'\n  Use -v to get more diff)"
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "05_find_user",
+      "bug_type": "SQL injection",
+      "caught_by_review": true,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 2,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 993,
+      "cache_read_tokens": 256,
+      "output_tokens": 1058,
+      "cost_usd": 0.00076455,
+      "latency_seconds": 2.9612684000021545,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "repository.py",
+          "line": 6,
+          "severity": "high",
+          "message": "The SQL query is built by concatenating the unescaped 'name' parameter, creating an SQL injection vulnerability and possible syntax errors if the name contains quotes.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import sqlite3\nimport pytest\n\nimport repository\n\n@pytest.fixture(scope=\"function\")\ndef connection():\n    \"\"\"Create an in\u2011memory SQLite database with a simple users table for each test.\"\"\"\n    conn = sqlite3.connect(\":memory:\")\n    conn.execute(\"\"\"\n        CREATE TABLE users (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            name TEXT NOT NULL\n        )\n    \"\"\")\n    # Insert a predictable set of rows\n    users = [\"Alice\", \"Bob\", \"Alice\", \"\", \"O'Reilly\"]\n    for name in users:\n        conn.execute(\"INSERT INTO users (name) VALUES (?)\", (name,))\n    conn.commit()\n    yield conn\n    conn.close()\n\ndef test_find_users_exact_match_returns_all_matches(connection):\n    # Two rows have the name 'Alice', ids will be 1 and 3 (AUTOINCREMENT starts at 1)\n    result = repository.find_users(connection, \"Alice\")\n    # Sort by id to make order deterministic\n    result = sorted(result, key=lambda row: row[0])\n    assert result == [(1, \"Alice\"), (3, \"Alice\")]\n\ndef test_find_users_no_match_returns_empty_list(connection):\n    result = repository.find_users(connection, \"Charlie\")\n    assert result == []\n\ndef test_find_users_empty_string_name(connection):\n    # There is exactly one row with an empty name (id 4)\n    result = repository.find_users(connection, \"\")\n    assert result == [(4, \"\")]\n\ndef test_find_users_sql_injection_via_quote_raises_error(connection):\n    # The function builds the query by string concatenation; a stray quote should break the SQL.\n    malicious_name = \"O'Reilly\"\n    # Expect SQLite to raise an OperationalError because the generated query becomes invalid.\n    with pytest.raises(sqlite3.OperationalError):\n        repository.find_users(connection, malicious_name)\n\ndef test_find_users_non_string_argument_raises_type_error(connection):\n    # Passing a non\u2011string should cause a TypeError before the query is executed.\n    with pytest.raises(TypeError):\n        repository.find_users(connection, 123)",
+      "test_verdicts": [
+        {
+          "test": "test_find_users_exact_match_returns_all_matches",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_find_users_no_match_returns_empty_list",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_find_users_empty_string_name",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_find_users_sql_injection_via_quote_raises_error",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_find_users_non_string_argument_raises_type_error",
+          "verdict": "bad test",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "06_age_gate",
+      "bug_type": "wrong comparison",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 7,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 932,
+      "cache_read_tokens": 0,
+      "output_tokens": 1857,
+      "cost_usd": 0.000627,
+      "latency_seconds": 2.5523727999971015,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "eligibility.py",
+          "line": 6,
+          "severity": "medium",
+          "message": "is_adult returns False for age 18 because it uses '>' instead of '>='; the docstring says 18 or older.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nimport eligibility\n\n@pytest.mark.parametrize(\"age,expected\", [\n    (17, False),\n    (18, True),\n    (19, True),\n    (0, False),\n    (100, True),\n])\n\ndef test_is_adult(age, expected):\n    assert eligibility.is_adult(age) == expected\n\n\ndef test_is_adult_invalid_type():\n    with pytest.raises(TypeError):\n        eligibility.is_adult(\"twenty\")\n\n\ndef test_adult_age_constant():\n    assert eligibility.ADULT_AGE == 18\n",
+      "test_verdicts": [
+        {
+          "test": "test_is_adult[17-False]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_adult[18-True]",
+          "verdict": "possible bug",
+          "message": "assert False == True\n +  where False = <function is_adult at 0x000001B38F81F380>(18)\n +    where <function is_adult at 0x000001B38F81F380> = eligibility.is_adult"
+        },
+        {
+          "test": "test_is_adult[19-True]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_adult[0-False]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_adult[100-True]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_adult_invalid_type",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_adult_age_constant",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "07_read_names",
+      "bug_type": "unclosed resource",
+      "caught_by_review": true,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 0,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 572,
+      "cache_read_tokens": 256,
+      "output_tokens": 421,
+      "cost_usd": null,
+      "latency_seconds": 5.426102699988405,
+      "errors": [
+        "gentests: groq API request failed: Error code: 400 - Failed to validate JSON. Please adjust your prompt. See 'failed_generation' for more details."
+      ],
+      "review_comments": [
+        {
+          "file": "loader.py",
+          "line": 3,
+          "severity": "low",
+          "message": "File handle is never closed; use a with statement to avoid resource leaks.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "",
+      "test_verdicts": []
+    },
+    {
+      "configuration": "optimised",
+      "case": "08_transfer",
+      "bug_type": "swapped arguments",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 12,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 1039,
+      "cache_read_tokens": 0,
+      "output_tokens": 1661,
+      "cost_usd": 0.000576225,
+      "latency_seconds": 2.849839400005294,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "ledger.py",
+          "line": 8,
+          "severity": "medium",
+          "message": "refund incorrectly calls move with reversed arguments, subtracting amount from customer instead of shop, so money is transferred in the wrong direction.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nfrom ledger import move, refund\n\n# ---- Tests for move -------------------------------------------------\n\n@pytest.mark.parametrize(\n    \"source, target, amount, initial_source, initial_target, expected_source, expected_target\",\n    [\n        # normal transfer\n        (\"A\", \"B\", 30, 100, 50, 70, 80),\n        # zero amount \u2013 no change\n        (\"X\", \"Y\", 0, 20, 40, 20, 40),\n        # negative amount \u2013 effectively reverse transfer\n        (\"C\", \"D\", -10, 15, 5, 25, -5),\n        # source and target same \u2013 net zero\n        (\"Z\", \"Z\", 25, 60, 60, 60, 60),\n        # large integer amount\n        (\"L\", \"M\", 10**18, 10**18, 10**18, 0, 2*10**18),\n    ],\n)\ndef test_move(source, target, amount, initial_source, initial_target, expected_source, expected_target):\n    balances = {source: initial_source, target: initial_target}\n    result = move(balances, source, target, amount)\n    # move should modify the dict in-place and return None\n    assert result is None\n    assert balances[source] == expected_source\n    assert balances[target] == expected_target\n\n# test that move raises KeyError if a key is missing\n\ndef test_move_missing_keys():\n    balances = {\"A\": 50}\n    with pytest.raises(KeyError):\n        move(balances, \"A\", \"B\", 10)  # target missing\n    with pytest.raises(KeyError):\n        move(balances, \"X\", \"A\", 10)  # source missing\n\n# ---- Tests for refund -------------------------------------------------\n\n@pytest.mark.parametrize(\n    \"shop, customer, amount, initial_shop, initial_customer, expected_shop, expected_customer\",\n    [\n        # normal refund\n        (\"Shop\", \"Cust\", 15, 200, 50, 185, 65),\n        # zero amount \u2013 no change\n        (\"S\", \"C\", 0, 80, 30, 80, 30),\n        # negative amount \u2013 shop pays customer\n        (\"S1\", \"C1\", -5, 100, 20, 105, 15),\n        # same shop and customer \u2013 net zero\n        (\"S2\", \"S2\", 10, 70, 70, 70, 70),\n        # large integer amount\n        (\"LargeShop\", \"LargeCust\", 10**20, 10**20, 10**20, 0, 2*10**20),\n    ],\n)\ndef test_refund(shop, customer, amount, initial_shop, initial_customer, expected_shop, expected_customer):\n    balances = {shop: initial_shop, customer: initial_customer}\n    result = refund(balances, shop, customer, amount)\n    assert result is None\n    assert balances[shop] == expected_shop\n    assert balances[customer] == expected_customer\n\n# test that refund uses move and raises KeyError appropriately\n\ndef test_refund_missing_keys():\n    balances = {\"Shop\": 100}\n    with pytest.raises(KeyError):\n        refund(balances, \"Shop\", \"Cust\", 20)  # customer missing\n    with pytest.raises(KeyError):\n        refund(balances, \"UnknownShop\", \"Shop\", 20)  # shop missing\n",
+      "test_verdicts": [
+        {
+          "test": "test_move[A-B-30-100-50-70-80]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_move[X-Y-0-20-40-20-40]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_move[C-D--10-15-5-25--5]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_move[Z-Z-25-60-60-60-60]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_move[L-M-1000000000000000000-1000000000000000000-1000000000000000000-0-2000000000000000000]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_move_missing_keys",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_refund[Shop-Cust-15-200-50-185-65]",
+          "verdict": "possible bug",
+          "message": "assert 215 == 185"
+        },
+        {
+          "test": "test_refund[S-C-0-80-30-80-30]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_refund[S1-C1--5-100-20-105-15]",
+          "verdict": "possible bug",
+          "message": "assert 95 == 105"
+        },
+        {
+          "test": "test_refund[S2-S2-10-70-70-70-70]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_refund[LargeShop-LargeCust-100000000000000000000-100000000000000000000-100000000000000000000-0-200000000000000000000]",
+          "verdict": "possible bug",
+          "message": "assert 200000000000000000000 == 0"
+        },
+        {
+          "test": "test_refund_missing_keys",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "09_access",
+      "bug_type": "wrong boolean logic",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 7,
+      "bad_tests": 4,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 938,
+      "cache_read_tokens": 512,
+      "output_tokens": 1274,
+      "cost_usd": 0.00043309399999999997,
+      "latency_seconds": 2.1663093000242952,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "permissions.py",
+          "line": 3,
+          "severity": "high",
+          "message": "The function allows deletion for any active user, even if not owner or admin, violating intended permission logic.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\nimport permissions\n\n# Test the intended behavior of can_delete as described in the docstring.\n# Admins should always be able to delete, regardless of the other flags.\n# Owners should only be able to delete when they are active.\n# Non-admin, non-owner, inactive users should not be able to delete.\n\n@pytest.mark.parametrize(\n    \"is_admin, is_owner, is_active, expected\",\n    [\n        (True,  False, False, True),   # Admin only\n        (False, True,  True,  True),   # Owner active\n        (False, True,  False, False),  # Owner inactive\n        (False, False, True,  False),  # Active only\n        (False, False, False, False),  # None of the flags\n    ],\n)\ndef test_can_delete_expected(is_admin, is_owner, is_active, expected):\n    assert permissions.can_delete(is_admin, is_owner, is_active) is expected\n\n# Verify that the function returns a boolean, even if None is passed (treats None as False).\n# This test ensures type consistency and graceful handling of unexpected None values.\n\ndef test_can_delete_returns_bool_with_none():\n    assert isinstance(permissions.can_delete(None, None, None), bool)\n    assert permissions.can_delete(None, None, None) is False\n\n# Edge case: when all parameters are truthy but not all are booleans.\n# For instance, using truthy integers or strings. The function should still behave as per logic.\n\ndef test_can_delete_with_non_bool_truthy_values():\n    # 1 is truthy, \"yes\" is truthy\n    assert permissions.can_delete(1, \"yes\", 0) is True\n    # Only owner truthy but not active\n    assert permissions.can_delete(0, \"yes\", 0) is False\n",
+      "test_verdicts": [
+        {
+          "test": "test_can_delete_expected[True-False-False-True]",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_can_delete_expected[False-True-True-True]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_can_delete_expected[False-True-False-False]",
+          "verdict": "possible bug",
+          "message": "assert True is False\n +  where True = <function can_delete at 0x00000139B6CEA2A0>(False, True, False)\n +    where <function can_delete at 0x00000139B6CEA2A0> = permissions.can_delete"
+        },
+        {
+          "test": "test_can_delete_expected[False-False-True-False]",
+          "verdict": "bad test",
+          "message": "assert True is False\n +  where True = <function can_delete at 0x00000139B6CEA2A0>(False, False, True)\n +    where <function can_delete at 0x00000139B6CEA2A0> = permissions.can_delete"
+        },
+        {
+          "test": "test_can_delete_expected[False-False-False-False]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_can_delete_returns_bool_with_none",
+          "verdict": "bad test",
+          "message": "assert False\n +  where False = isinstance(None, bool)\n +    where None = <function can_delete at 0x00000139B6CEA2A0>(None, None, None)\n +      where <function can_delete at 0x00000139B6CEA2A0> = permissions.can_delete"
+        },
+        {
+          "test": "test_can_delete_with_non_bool_truthy_values",
+          "verdict": "bad test",
+          "message": "AssertionError: assert 1 is True\n +  where 1 = <function can_delete at 0x00000139B6CEA2A0>(1, 'yes', 0)\n +    where <function can_delete at 0x00000139B6CEA2A0> = permissions.can_delete"
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "10_largest",
+      "bug_type": "missing return",
+      "caught_by_review": false,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 2,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 936,
+      "cache_read_tokens": 256,
+      "output_tokens": 785,
+      "cost_usd": 0.000295972,
+      "latency_seconds": 1.2530097999988357,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "selection.py",
+          "line": 1,
+          "severity": "medium",
+          "message": "Function larger lacks a return statement when first == second, causing it to return None and violate the declared int return type.",
+          "on_bug_line": false
+        }
+      ],
+      "test_code": "import pytest\n\nimport selection\n\n# Test cases for the `larger` function.\n\n# 1. First number is larger.\n#    Expect the function to return the first argument.\n\ndef test_first_larger_positive():\n    assert selection.larger(10, 5) == 10\n\n# 2. Second number is larger.\n#    Expect the function to return the second argument.\n\ndef test_second_larger_positive():\n    assert selection.larger(3, 7) == 7\n\n# 3. Negative numbers.\n#    The function should correctly compare negative values.\n\ndef test_negative_numbers():\n    assert selection.larger(-2, -5) == -2\n    assert selection.larger(-10, -3) == -3\n\n# 4. Zero and positive.\n#    Zero is considered smaller than any positive number.\n\ndef test_zero_and_positive():\n    assert selection.larger(0, 0) is None  # Edge case: equal values\n    assert selection.larger(0, 5) == 5\n    assert selection.larger(-1, 0) == 0\n\n# 5. Equal values.\n#    The original implementation does not return anything in this case.\n#    This test verifies the actual behavior (None) rather than the intended behavior.\n\ndef test_equal_values():\n    assert selection.larger(7, 7) is None\n",
+      "test_verdicts": [
+        {
+          "test": "test_first_larger_positive",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_second_larger_positive",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_negative_numbers",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_zero_and_positive",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_equal_values",
+          "verdict": "bad test",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "11_average",
+      "bug_type": "integer division",
+      "caught_by_review": false,
+      "caught_by_tests": true,
+      "comments": 0,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 355,
+      "cache_read_tokens": 256,
+      "output_tokens": 888,
+      "cost_usd": null,
+      "latency_seconds": 2.5302441000094404,
+      "errors": [
+        "review: groq API request failed: Error code: 400 - Failed to validate JSON. Please adjust your prompt. See 'failed_generation' for more details."
+      ],
+      "review_comments": [],
+      "test_code": "import pytest\nfrom grades import mean_score\n\n# Test that a normal list returns the correct floating-point average\n\ndef test_mean_score_normal():\n    scores = [10, 20, 30]\n    expected = 20.0\n    result = mean_score(scores)\n    assert isinstance(result, float), \"Result should be a float\"\n    assert result == expected\n\n# Test that a single-element list returns that element as a float\n\ndef test_mean_score_single_value():\n    scores = [5]\n    expected = 5.0\n    result = mean_score(scores)\n    assert isinstance(result, float)\n    assert result == expected\n\n# Test that a list with two values returns the correct average\n\ndef test_mean_score_multiple_values():\n    scores = [1, 2]\n    expected = 1.5\n    result = mean_score(scores)\n    assert isinstance(result, float)\n    assert result == expected\n\n# Test that providing an empty list raises ZeroDivisionError\n\ndef test_mean_score_empty_raises():\n    with pytest.raises(ZeroDivisionError):\n        mean_score([])\n\n# Test that providing a list of non-integers raises TypeError\n\ndef test_mean_score_invalid_type_raises():\n    with pytest.raises(TypeError):\n        mean_score(['a'])\n",
+      "test_verdicts": [
+        {
+          "test": "test_mean_score_normal",
+          "verdict": "possible bug",
+          "message": "AssertionError: Result should be a float\nassert False\n +  where False = isinstance(20, float)"
+        },
+        {
+          "test": "test_mean_score_single_value",
+          "verdict": "possible bug",
+          "message": "assert False\n +  where False = isinstance(5, float)"
+        },
+        {
+          "test": "test_mean_score_multiple_values",
+          "verdict": "possible bug",
+          "message": "assert False\n +  where False = isinstance(1, float)"
+        },
+        {
+          "test": "test_mean_score_empty_raises",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_mean_score_invalid_type_raises",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "12_parse_port",
+      "bug_type": "swallowed error",
+      "caught_by_review": false,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 4,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 967,
+      "cache_read_tokens": 256,
+      "output_tokens": 1679,
+      "cost_usd": 0.0005664969999999999,
+      "latency_seconds": 2.799243100002059,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "settings_reader.py",
+          "line": 1,
+          "severity": "medium",
+          "message": "parse_port returns 0 on invalid input instead of raising ValueError as documented, and does not validate port ranges. This can lead to silent failures.",
+          "on_bug_line": false
+        }
+      ],
+      "test_code": "import pytest\nfrom settings_reader import parse_port\n\n\ndef test_parse_port_valid_numbers():\n    assert parse_port(\"80\") == 80\n    assert parse_port(\"8080\") == 8080\n    assert parse_port(\"00123\") == 123\n    assert parse_port(\"-1\") == -1\n\n\ndef test_parse_port_zero_and_empty():\n    assert parse_port(\"0\") == 0\n    assert parse_port(\"\") == 0\n    assert parse_port(\"   \") == 0\n\n\ndef test_parse_port_invalid_input_returns_zero():\n    for invalid in [\"abc\", \"123abc\", \"12.3\", \"NaN\", \"None\"]:\n        assert parse_port(invalid) == 0\n\n\ndef test_parse_port_whitespace_and_non_numeric():\n    assert parse_port(\"  8080  \") == 8080\n    assert parse_port(\"\\t\\n123\") == 123\n\n\ndef test_parse_port_non_string_input():\n    assert parse_port(8080) == 8080\n    assert parse_port(None) == 0",
+      "test_verdicts": [
+        {
+          "test": "test_parse_port_valid_numbers",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_parse_port_zero_and_empty",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_parse_port_invalid_input_returns_zero",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_parse_port_whitespace_and_non_numeric",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_parse_port_non_string_input",
+          "verdict": "bad test",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "13_remove_expired",
+      "bug_type": "list changed while iterating",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 966,
+      "cache_read_tokens": 256,
+      "output_tokens": 1813,
+      "cost_usd": 0.000606622,
+      "latency_seconds": 2.967433900004835,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "sessions.py",
+          "line": 3,
+          "severity": "medium",
+          "message": "Modifying a list while iterating over it with a for loop leads to skipping elements; drop_expired may not remove all ages over limit.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\nfrom sessions import drop_expired\n\n# Test that ages greater than limit are removed, others stay\n\ndef test_drop_expired_removes_greater():\n    ages = [20, 35, 40, 30]\n    limit = 30\n    result = drop_expired(ages, limit)\n    # Ages 35 and 40 should be removed; 30 remains because it is not over the limit\n    assert result == [20, 30]\n    assert ages == [20, 30]\n\n# Test that no ages are removed when all are <= limit\n\ndef test_drop_expired_no_removal():\n    ages = [10, 20, 30]\n    limit = 30\n    result = drop_expired(ages, limit)\n    assert result == [10, 20, 30]\n    assert result is ages\n\n# Test that an empty list stays empty\n\ndef test_drop_expired_empty():\n    ages = []\n    limit = 10\n    result = drop_expired(ages, limit)\n    assert result == []\n    assert ages == []\n\n# Test handling of negative limits and negative ages\n\ndef test_drop_expired_negative_limit():\n    ages = [-5, 0, 5]\n    limit = -1\n    result = drop_expired(ages, limit)\n    # Only -5 stays because it is <= limit\n    assert result == [-5]\n    assert ages == [-5]\n\n# Test that the function returns the same list object it was given\n\ndef test_drop_expired_returns_same_object():\n    ages = [1, 2, 3]\n    limit = 0\n    result = drop_expired(ages, limit)\n    assert result is ages\n    # All ages > 0 are removed, leaving an empty list\n    assert ages == []\n",
+      "test_verdicts": [
+        {
+          "test": "test_drop_expired_removes_greater",
+          "verdict": "possible bug",
+          "message": "assert [20, 40, 30] == [20, 30]\n  \n  At index 1 diff: 40 != 30\n  Left contains one more item: 30\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_drop_expired_no_removal",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_drop_expired_empty",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_drop_expired_negative_limit",
+          "verdict": "possible bug",
+          "message": "assert [-5, 5] == [-5]\n  \n  Left contains one more item: 5\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_drop_expired_returns_same_object",
+          "verdict": "possible bug",
+          "message": "assert [2] == []\n  \n  Left contains one more item: 2\n  Use -v to get more diff"
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "14_multipliers",
+      "bug_type": "late-binding closure",
+      "caught_by_review": false,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 0,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 967,
+      "cache_read_tokens": 256,
+      "output_tokens": 3278,
+      "cost_usd": 0.001046197,
+      "latency_seconds": 4.645031100008055,
+      "errors": [
+        "gentests: the reply did not match the expected JSON structure (1 validation errors)"
+      ],
+      "review_comments": [
+        {
+          "file": "factory.py",
+          "line": 5,
+          "severity": "medium",
+          "message": "Each lambda captures 'factor' from the enclosing scope, so all returned functions will multiply by the last value in the range, not the intended index; this leads to incorrect results.",
+          "on_bug_line": false
+        }
+      ],
+      "test_code": "",
+      "test_verdicts": []
+    },
+    {
+      "configuration": "optimised",
+      "case": "15_status",
+      "bug_type": "identity instead of equality",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 2,
+      "tests": 12,
+      "bad_tests": 1,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 915,
+      "cache_read_tokens": 512,
+      "output_tokens": 1481,
+      "cost_usd": 0.000493469,
+      "latency_seconds": 2.409776399988914,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "orders.py",
+          "line": 3,
+          "severity": "medium",
+          "message": "Using 'is' for string comparison can lead to incorrect results due to object identity; use '==' instead.",
+          "on_bug_line": true
+        },
+        {
+          "file": "orders.py",
+          "line": 3,
+          "severity": "high",
+          "message": "If status is None or not a string, calling .lower() will raise an AttributeError, causing a crash.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\nimport orders\n\n# 1. Test that is_shipped returns True for the string \"shipped\" in various casings\n@pytest.mark.parametrize(\"status\", [\"shipped\", \"Shipped\", \"SHIPPED\", \"ShIpPeD\"])\ndef test_is_shipped_true_cases(status):\n    assert orders.is_shipped(status) is True\n\n# 2. Test that is_shipped returns False for strings that are not exactly \"shipped\"\n@pytest.mark.parametrize(\"status\", [\"pending\", \"delivered\", \"shipped!\", \"shipped\", \"shipped.\"])\ndef test_is_shipped_false_cases(status):\n    assert orders.is_shipped(status) is False\n\n# 3. Test that an empty string is not considered shipped\n\ndef test_is_shipped_empty_string():\n    assert orders.is_shipped(\"\") is False\n\n# 4. Test that strings with leading/trailing whitespace are not considered shipped\n\ndef test_is_shipped_whitespace():\n    assert orders.is_shipped(\" shipped\") is False\n    assert orders.is_shipped(\"shipped \") is False\n    assert orders.is_shipped(\" shipped \") is False\n\n# 5. Test that passing None raises an AttributeError due to missing .lower method\n\ndef test_is_shipped_none():\n    with pytest.raises(AttributeError):\n        orders.is_shipped(None)",
+      "test_verdicts": [
+        {
+          "test": "test_is_shipped_true_cases[shipped]",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert False is True\n +  where False = <function is_shipped at 0x000002A74596A2A0>('shipped')\n +    where <function is_shipped at 0x000002A74596A2A0> = orders.is_shipped"
+        },
+        {
+          "test": "test_is_shipped_true_cases[Shipped]",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert False is True\n +  where False = <function is_shipped at 0x000002A74596A2A0>('Shipped')\n +    where <function is_shipped at 0x000002A74596A2A0> = orders.is_shipped"
+        },
+        {
+          "test": "test_is_shipped_true_cases[SHIPPED]",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert False is True\n +  where False = <function is_shipped at 0x000002A74596A2A0>('SHIPPED')\n +    where <function is_shipped at 0x000002A74596A2A0> = orders.is_shipped"
+        },
+        {
+          "test": "test_is_shipped_true_cases[ShIpPeD]",
+          "verdict": "possible bug",
+          "message": "AssertionError: assert False is True\n +  where False = <function is_shipped at 0x000002A74596A2A0>('ShIpPeD')\n +    where <function is_shipped at 0x000002A74596A2A0> = orders.is_shipped"
+        },
+        {
+          "test": "test_is_shipped_false_cases[pending]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_shipped_false_cases[delivered]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_shipped_false_cases[shipped!]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_shipped_false_cases[shipped]",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_is_shipped_false_cases[shipped.]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_shipped_empty_string",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_shipped_whitespace",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_is_shipped_none",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "16_grid",
+      "bug_type": "shared inner list",
+      "caught_by_review": false,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 928,
+      "cache_read_tokens": 0,
+      "output_tokens": 1971,
+      "cost_usd": 0.0006609,
+      "latency_seconds": 2.9871105999918655,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "board.py",
+          "line": 1,
+          "severity": "medium",
+          "message": "empty_grid uses [[0]*columns] * rows, causing all rows to refer to the same list; mutating one row changes all rows.",
+          "on_bug_line": false
+        }
+      ],
+      "test_code": "import pytest\nimport board\n\ndef test_empty_grid_shape():\n    grid = board.empty_grid(3, 4)\n    assert len(grid) == 3\n    assert all(len(row) == 4 for row in grid)\n\ndef test_empty_grid_zeros():\n    grid = board.empty_grid(2, 3)\n    for row in grid:\n        assert row == [0, 0, 0]\n\ndef test_empty_grid_independence():\n    grid = board.empty_grid(2, 2)\n    grid[0][0] = 5\n    assert grid[1][0] == 0\n\ndef test_empty_grid_zero_rows():\n    grid = board.empty_grid(0, 5)\n    assert grid == []\n\ndef test_empty_grid_zero_columns():\n    grid = board.empty_grid(4, 0)\n    assert all(row == [] for row in grid)\n",
+      "test_verdicts": [
+        {
+          "test": "test_empty_grid_shape",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_empty_grid_zeros",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_empty_grid_independence",
+          "verdict": "possible bug",
+          "message": "assert 5 == 0"
+        },
+        {
+          "test": "test_empty_grid_zero_rows",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_empty_grid_zero_columns",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "17_warmest",
+      "bug_type": "wrong initial value",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 1,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 968,
+      "cache_read_tokens": 256,
+      "output_tokens": 1137,
+      "cost_usd": 0.00040397199999999995,
+      "latency_seconds": 2.2643293000000995,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "weather.py",
+          "line": 3,
+          "severity": "medium",
+          "message": "Initializing highest to 0.0 causes the function to return 0.0 for a list of negative temperatures (or an empty list), violating the intended behavior of returning the maximum reading.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\n# Import the function from the weather module\nfrom weather import highest_temperature\n\n# Test normal positive temperatures\n\ndef test_highest_temperature_positive_values():\n    readings = [10.5, 20.3, 5.1, 15.0]\n    assert highest_temperature(readings) == 20.3\n\n# Test with all negative temperatures\n\ndef test_highest_temperature_negative_values():\n    readings = [-10.0, -5.5, -20.2]\n    assert highest_temperature(readings) == -5.5\n\n# Test with a single temperature value\n\ndef test_highest_temperature_single_value():\n    readings = [42.0]\n    assert highest_temperature(readings) == 42.0\n\n# Test that an empty list raises a ValueError (expected behavior)\n\ndef test_highest_temperature_empty_list():\n    with pytest.raises(ValueError):\n        highest_temperature([])\n\n# Test that the function correctly handles duplicate maximum values\n\ndef test_highest_temperature_duplicate_max():\n    readings = [7.0, 7.0, 7.0, 5.0]\n    assert highest_temperature(readings) == 7.0\n",
+      "test_verdicts": [
+        {
+          "test": "test_highest_temperature_positive_values",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_highest_temperature_negative_values",
+          "verdict": "possible bug",
+          "message": "assert 0.0 == -5.5\n +  where 0.0 = highest_temperature([-10.0, -5.5, -20.2])"
+        },
+        {
+          "test": "test_highest_temperature_single_value",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_highest_temperature_empty_list",
+          "verdict": "bad test",
+          "message": "Failed: DID NOT RAISE ValueError"
+        },
+        {
+          "test": "test_highest_temperature_duplicate_max",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "18_all_positive",
+      "bug_type": "early return in loop",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 952,
+      "cache_read_tokens": 0,
+      "output_tokens": 1570,
+      "cost_usd": 0.0005424,
+      "latency_seconds": 2.6208017999888398,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "validation.py",
+          "line": 6,
+          "severity": "medium",
+          "message": "The function returns after examining only the first element, so values beyond the first are ignored. This leads to incorrect results when later elements are non\u2011positive.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nimport validation\n\ndef test_all_positive_all_positive():\n    assert validation.all_positive([1, 2, 3]) is True\n\ndef test_all_positive_with_zero():\n    assert validation.all_positive([1, 0, 3]) is False\n\ndef test_all_positive_with_negative():\n    assert validation.all_positive([-1, 2, 3]) is False\n\ndef test_all_positive_empty_list():\n    assert validation.all_positive([]) is True\n\ndef test_all_positive_non_list():\n    with pytest.raises(TypeError):\n        validation.all_positive(None)\n",
+      "test_verdicts": [
+        {
+          "test": "test_all_positive_all_positive",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_all_positive_with_zero",
+          "verdict": "possible bug",
+          "message": "assert True is False\n +  where True = <function all_positive at 0x000002E62517F600>([1, 0, 3])\n +    where <function all_positive at 0x000002E62517F600> = validation.all_positive"
+        },
+        {
+          "test": "test_all_positive_with_negative",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_all_positive_empty_list",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_all_positive_non_list",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "19_download",
+      "bug_type": "path traversal",
+      "caught_by_review": false,
+      "caught_by_tests": true,
+      "comments": 0,
+      "tests": 8,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 376,
+      "cache_read_tokens": 256,
+      "output_tokens": 1415,
+      "cost_usd": null,
+      "latency_seconds": 2.5712962999969022,
+      "errors": [
+        "review: groq API request failed: Error code: 400 - Failed to validate JSON. Please adjust your prompt. See 'failed_generation' for more details."
+      ],
+      "review_comments": [],
+      "test_code": "import pytest\nfrom pathlib import Path\nimport storage\n\n# Test normal case where the file is inside the base directory\n@pytest.mark.parametrize(\"name,expected_path\", [\n    (\"file.txt\", \"file.txt\"),\n    (\"subdir/../file.txt\", \"file.txt\"),\n    (\"subdir/file.txt\", \"subdir/file.txt\"),\n])\ndef test_resolve_upload_inside(tmp_path, name, expected_path):\n    base = tmp_path\n    resolved = storage.resolve_upload(base, name)\n    assert isinstance(resolved, Path)\n    assert resolved.is_absolute()\n    assert resolved == (base / expected_path).resolve()\n\n# Test that an empty name returns the base path itself\ndef test_resolve_upload_empty_name(tmp_path):\n    base = tmp_path\n    resolved = storage.resolve_upload(base, \"\")\n    assert resolved == base\n\n# Test that a relative path attempting to escape the base directory raises ValueError\n@pytest.mark.parametrize(\"name\", [\"../outside.txt\", \"../../etc/passwd\"])\ndef test_resolve_upload_outside(tmp_path, name):\n    base = tmp_path\n    with pytest.raises(ValueError):\n        storage.resolve_upload(base, name)\n\n# Test that an absolute path that lies outside the base also raises ValueError\ndef test_resolve_upload_absolute_path_outside(tmp_path):\n    base = tmp_path\n    absolute_name = str(Path(\"/etc/passwd\"))\n    with pytest.raises(ValueError):\n        storage.resolve_upload(base, absolute_name)\n\n# Test that a name which is an absolute path pointing inside the base does not raise (edge case)\n# (This test is optional and demonstrates the function's behavior in a corner case)\n@pytest.mark.skip(reason=\"Not part of the intended public API\")\ndef test_resolve_upload_absolute_inside(tmp_path):\n    base = tmp_path\n    (base / \"inside.txt\").write_text(\"data\")\n    absolute_name = str((base / \"inside.txt\").resolve())\n    resolved = storage.resolve_upload(base, absolute_name)\n    assert resolved == (base / \"inside.txt\").resolve()\n",
+      "test_verdicts": [
+        {
+          "test": "test_resolve_upload_inside[file.txt-file.txt]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_resolve_upload_inside[subdir/../file.txt-file.txt]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_resolve_upload_inside[subdir/file.txt-subdir/file.txt]",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_resolve_upload_empty_name",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_resolve_upload_outside[../outside.txt]",
+          "verdict": "possible bug",
+          "message": "Failed: DID NOT RAISE ValueError"
+        },
+        {
+          "test": "test_resolve_upload_outside[../../etc/passwd]",
+          "verdict": "possible bug",
+          "message": "Failed: DID NOT RAISE ValueError"
+        },
+        {
+          "test": "test_resolve_upload_absolute_path_outside",
+          "verdict": "possible bug",
+          "message": "Failed: DID NOT RAISE ValueError"
+        },
+        {
+          "test": "test_resolve_upload_absolute_inside",
+          "verdict": "skipped",
+          "message": "Not part of the intended public API"
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "20_success_rate",
+      "bug_type": "unhandled empty input",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 921,
+      "cache_read_tokens": 256,
+      "output_tokens": 1048,
+      "cost_usd": 0.000373747,
+      "latency_seconds": 1.8638980999967316,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "metrics.py",
+          "line": 3,
+          "severity": "high",
+          "message": "The function will raise ZeroDivisionError when called with an empty list, contrary to the docstring that says it should return 0.0.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\n\nimport metrics\n\n# 1. Empty list should return 0.0, not raise an exception\ndef test_success_rate_empty():\n    assert metrics.success_rate([]) == 0.0\n\n# 2. All True values should yield a rate of 1.0\ndef test_success_rate_all_true():\n    data = [True, True, True, True]\n    assert metrics.success_rate(data) == 1.0\n\n# 3. All False values should yield a rate of 0.0\ndef test_success_rate_all_false():\n    data = [False, False, False]\n    assert metrics.success_rate(data) == 0.0\n\n# 4. Mixed True/False values should yield the correct proportion\ndef test_success_rate_mixed():\n    data = [True, False, True, True, False]\n    expected = 3 / 5  # 3 True out of 5\n    assert metrics.success_rate(data) == expected\n\n# 5. Single True element should return 1.0\ndef test_success_rate_single_true():\n    data = [True]\n    assert metrics.success_rate(data) == 1.0\n",
+      "test_verdicts": [
+        {
+          "test": "test_success_rate_empty",
+          "verdict": "possible bug",
+          "message": "ZeroDivisionError: division by zero"
+        },
+        {
+          "test": "test_success_rate_all_true",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_success_rate_all_false",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_success_rate_mixed",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_success_rate_single_true",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "21_recent",
+      "bug_type": "slice boundary",
+      "caught_by_review": false,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 1,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 919,
+      "cache_read_tokens": 512,
+      "output_tokens": 1602,
+      "cost_usd": 0.000530069,
+      "latency_seconds": 2.7400138000084553,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "history.py",
+          "line": 1,
+          "severity": "medium",
+          "message": "For count == 0, entries[-count:] returns the entire list instead of an empty list, violating the intended behavior that zero entries should be returned.",
+          "on_bug_line": false
+        }
+      ],
+      "test_code": "import pytest\nimport history\n\ndef test_latest_normal():\n    entries = ['a', 'b', 'c', 'd']\n    count = 2\n    assert history.latest(entries, count) == ['c', 'd']\n\ndef test_latest_zero_count():\n    entries = ['x', 'y']\n    count = 0\n    assert history.latest(entries, count) == ['x', 'y']\n\ndef test_latest_count_equals_length():\n    entries = ['p', 'q']\n    count = 2\n    assert history.latest(entries, count) == ['p', 'q']\n\ndef test_latest_count_greater_than_length():\n    entries = ['1', '2']\n    count = 5\n    assert history.latest(entries, count) == ['1', '2']\n\ndef test_latest_empty_entries():\n    entries = []\n    count = 3\n    assert history.latest(entries, count) == []",
+      "test_verdicts": [
+        {
+          "test": "test_latest_normal",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_latest_zero_count",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_latest_count_equals_length",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_latest_count_greater_than_length",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_latest_empty_entries",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "22_word_counts",
+      "bug_type": "missing dictionary default",
+      "caught_by_review": true,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 0,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 964,
+      "cache_read_tokens": 512,
+      "output_tokens": 2269,
+      "cost_usd": 0.000733544,
+      "latency_seconds": 3.323179799990612,
+      "errors": [
+        "gentests: the reply did not match the expected JSON structure (5 validation errors)"
+      ],
+      "review_comments": [
+        {
+          "file": "frequency.py",
+          "line": 5,
+          "severity": "high",
+          "message": "counts[word] += 1 will raise a KeyError because counts is an empty dictionary; the function crashes on the first word. Use a defaultdict, Counter, or initialize the key before incrementing.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "",
+      "test_verdicts": []
+    },
+    {
+      "configuration": "optimised",
+      "case": "23_factorial",
+      "bug_type": "missing base case",
+      "caught_by_review": false,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 3,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 945,
+      "cache_read_tokens": 256,
+      "output_tokens": 1570,
+      "cost_usd": 0.000532147,
+      "latency_seconds": 4.763552400007029,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "combinatorics.py",
+          "line": 1,
+          "severity": "high",
+          "message": "The factorial function recurses indefinitely for input 0 or negative numbers because the only base case is `number == 1`. This leads to a RecursionError (crash) when calling factorial(0) or factorial(-n).",
+          "on_bug_line": false
+        }
+      ],
+      "test_code": "import pytest\nfrom combinatorics import factorial\nimport math\n\ndef test_factorial_positive_small():\n    assert factorial(1) == 1\n    assert factorial(5) == 120\n\ndef test_factorial_large():\n    assert factorial(10) == math.factorial(10)\n    assert factorial(20) == math.factorial(20)\n\ndef test_factorial_zero_recursion_error():\n    with pytest.raises(RecursionError):\n        factorial(0)\n\ndef test_factorial_negative_recursion_error():\n    with pytest.raises(RecursionError):\n        factorial(-3)\n\ndef test_factorial_non_int_input_recursion_error():\n    with pytest.raises(RecursionError):\n        factorial(5.5)\n",
+      "test_verdicts": [
+        {
+          "test": "test_factorial_positive_small",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_factorial_large",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_factorial_zero_recursion_error",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_factorial_negative_recursion_error",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_factorial_non_int_input_recursion_error",
+          "verdict": "bad test",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "24_summary",
+      "bug_type": "iterator used twice",
+      "caught_by_review": true,
+      "caught_by_tests": true,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-20b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 969,
+      "cache_read_tokens": 256,
+      "output_tokens": 2281,
+      "cost_usd": 0.0007472469999999999,
+      "latency_seconds": 3.4152051999844844,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "reporting.py",
+          "line": 7,
+          "severity": "medium",
+          "message": "Calling sum(amounts) consumes the iterable, so len(list(amounts)) will see an exhausted iterator and return 0. The function claims to accept any iterable but will misbehave for generators or one\u2011time iterators.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nfrom reporting import total_and_count\n\n\ndef test_total_and_count_list():\n    amounts = [1, 2, 3, 4]\n    assert total_and_count(amounts) == (10, 4)\n\n\ndef test_total_and_count_generator():\n    amounts = (i for i in range(5))\n    assert total_and_count(amounts) == (10, 5)\n\n\ndef test_total_and_count_empty():\n    assert total_and_count([]) == (0, 0)\n\n\ndef test_total_and_count_large():\n    amounts = [10**12, 10**12 + 1]\n    assert total_and_count(amounts) == (2*10**12 + 1, 2)\n\n\ndef test_total_and_count_non_iterable():\n    with pytest.raises(TypeError):\n        total_and_count(None)\n",
+      "test_verdicts": [
+        {
+          "test": "test_total_and_count_list",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_total_and_count_generator",
+          "verdict": "possible bug",
+          "message": "assert (10, 0) == (10, 5)\n  \n  At index 1 diff: 0 != 5\n  Use -v to get more diff"
+        },
+        {
+          "test": "test_total_and_count_empty",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_total_and_count_large",
+          "verdict": "passed",
+          "message": ""
+        },
+        {
+          "test": "test_total_and_count_non_iterable",
+          "verdict": "passed",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "25_ping",
+      "bug_type": "shell injection",
+      "caught_by_review": true,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 5,
+      "bad_tests": 5,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 946,
+      "cache_read_tokens": 512,
+      "output_tokens": 1509,
+      "cost_usd": 0.0010089,
+      "latency_seconds": 4.91256599999906,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "network.py",
+          "line": 6,
+          "severity": "high",
+          "message": "The subprocess.run call uses shell=True with a formatted host string, allowing command injection if an attacker controls the host argument.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import pytest\nimport network\n\nclass DummyResult:\n    def __init__(self, returncode: int):\n        self.returncode = returncode\n\n\ndef test_ping_returns_exit_code(monkeypatch):\n    \"\"\"ping should return the returncode from subprocess.run.\"\"\"\n    def fake_run(cmd, shell, check):\n        # Ensure the wrapper passes the expected flags\n        assert shell is True\n        assert check is False\n        return DummyResult(0)\n    monkeypatch.setattr(network.subprocess, \"run\", fake_run)\n    assert network.ping(\"example.com\") == 0\n\n\ndef test_ping_constructs_correct_command(monkeypatch):\n    \"\"\"The command string passed to subprocess.run must contain the host exactly once.\"\"\"\n    captured = {}\n    def fake_run(cmd, shell, check):\n        captured[\"cmd\"] = cmd\n        return DummyResult(1)\n    monkeypatch.setattr(network.subprocess, \"run\", fake_run)\n    rc = network.ping(\"my-host\")\n    assert rc == 1\n    # The command should be exactly \"ping -c 1 my-host\"\n    assert captured[\"cmd\"] == \"ping -c 1 my-host\"\n\n\ndef test_ping_empty_host(monkeypatch):\n    \"\"\"An empty host should still produce a command; the function should not raise.\"\"\"\n    def fake_run(cmd, shell, check):\n        # The command will end with a space after the flag\n        assert cmd == \"ping -c 1 \"\n        return DummyResult(2)\n    monkeypatch.setattr(network.subprocess, \"run\", fake_run)\n    assert network.ping(\"\") == 2\n\n\ndef test_ping_non_string_host(monkeypatch):\n    \"\"\"If a non\u2011string is supplied, f\u2011string conversion should still work and the host appears in the command.\"\"\"\n    def fake_run(cmd, shell, check):\n        assert cmd == \"ping -c 1 12345\"\n        return DummyResult(3)\n    monkeypatch.setattr(network.subprocess, \"run\", fake_run)\n    # Pass an int; it will be converted to its string representation\n    assert network.ping(12345) == 3\n\n\ndef test_ping_multiple_calls(monkeypatch):\n    \"\"\"Each call to ping should return the returncode from its own subprocess.run invocation.\"\"\"\n    returncodes = [0, 5, 255]\n    calls = []\n    def fake_run(cmd, shell, check):\n        # Pop the next expected returncode\n        rc = returncodes[len(calls)]\n        calls.append(cmd)\n        return DummyResult(rc)\n    monkeypatch.setattr(network.subprocess, \"run\", fake_run)\n    assert network.ping(\"a\") == 0\n    assert network.ping(\"b\") == 5\n    assert network.ping(\"c\") == 255\n    # Verify that three distinct commands were issued\n    assert calls == [\"ping -c 1 a\", \"ping -c 1 b\", \"ping -c 1 c\"]\n",
+      "test_verdicts": [
+        {
+          "test": "test_ping_returns_exit_code",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_ping_constructs_correct_command",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_ping_empty_host",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_ping_non_string_host",
+          "verdict": "bad test",
+          "message": ""
+        },
+        {
+          "test": "test_ping_multiple_calls",
+          "verdict": "bad test",
+          "message": ""
+        }
+      ]
+    },
+    {
+      "configuration": "optimised",
+      "case": "26_counter",
+      "bug_type": "lock not released",
+      "caught_by_review": true,
+      "caught_by_tests": false,
+      "comments": 1,
+      "tests": 0,
+      "bad_tests": 0,
+      "models": [
+        "openai/gpt-oss-120b"
+      ],
+      "requests": 2,
+      "cache_hits": 0,
+      "input_tokens": 988,
+      "cache_read_tokens": 512,
+      "output_tokens": 1149,
+      "cost_usd": 0.0007991999999999999,
+      "latency_seconds": 2.947878800012404,
+      "errors": [],
+      "review_comments": [
+        {
+          "file": "counter.py",
+          "line": 11,
+          "severity": "high",
+          "message": "If the provided action raises an exception, lock.release() is never called, leaving the lock permanently acquired and potentially deadlocking the program.",
+          "on_bug_line": true
+        }
+      ],
+      "test_code": "import threading\nimport time\nimport pytest\n\nimport counter\n\n\ndef test_run_locked_returns_value():\n    def action():\n        return 42\n    assert counter.run_locked(action) == 42\n\n\ndef test_lock_is_held_inside_action():\n    def action():\n        # Inside the action the lock should be held\n        assert counter.lock.locked() is True\n        return 0\n    # Ensure lock is not held before calling\n    assert counter.lock.locked() is False\n    counter.run_locked(action)\n    # After execution lock should be released\n    assert counter.lock.locked() is False\n\n\ndef test_lock_released_after_exception():\n    class TestError(Exception):\n        pass\n    def action():\n        raise TestError(\"boom\")\n    # Ensure lock is free before\n    assert not counter.lock.locked()\n    with pytest.raises(TestError):\n        counter.run_locked(action)\n    # Lock must be released even after exception\n    assert not counter.lock.locked()\n\n\ndef test_sequential_execution_of_concurrent_calls():\n    # This test ensures that two concurrent calls to run_locked execute sequentially\n    start_times = []\n    end_times = []\n    def long_action():\n        start_times.append(time.time())\n        time.sleep(0.2)  # hold lock for a bit\n        end_times.append(time.time())\n        return 1\n    # First thread starts immediately\n    t1 = threading.Thread(target=lambda: counter.run_locked(long_action))\n    # Second thread starts shortly after\n    t2 = threading.Thread(target=lambda: counter.run_locked(long_action))\n    t1.start()\n    time.sleep(0.05)  # ensure overlap attempt\n    t2.start()\n    t1.join()\n    t2.join()\n    # Verify that the second start happened after the first ended (sequential)\n    assert len(start_times) == 2 and len(end_times) == 2\n    assert start_times[1] >= end_times[0]\n\n\ndef test_multiple_calls_return_correct_values():\n    # Verify that successive calls each return their respective results\n    results = []\n    def make_action(val):\n        return lambda: val\n    for i in range(5):\n        results.append(counter.run_locked(make_action(i)))\n    assert results == list(range(5))\n",
+      "test_verdicts": []
+    }
+  ]
+}

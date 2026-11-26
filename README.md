@@ -4,8 +4,8 @@ A Python CLI and GitHub Action that reviews a git diff with the Claude API (or N
 DeepSeek or Ollama), generates pytest tests for the changed functions, runs them, and records the
 tokens and cost of every request.
 
-**Status:** the code is complete and tested against mocked APIs. A two-case trial has run against
-the Groq API; the full evaluation has not been run, so there are no benchmark results.
+**Status:** the code is complete and tested against mocked APIs. The 26-case evaluation has been
+run once, with Groq; see [Results](#results).
 
 **Live demo** (bring your own API key):
 
@@ -304,22 +304,18 @@ docker run --rm -it -e ANTHROPIC_API_KEY -v "${PWD}:/work" patchpilot eval --rea
 For another provider, pass its key variable with `-e` and add `--provider <name>`. Costs then
 show as `unknown`, so compare bugs caught, tokens and time.
 
-Raw results are saved in `eval/results/`.
+Raw results are saved in `eval/results/`, including every review comment and generated test,
+so you can check whether each catch is deserved.
 
 ### Results
 
 <!-- eval:start -->
-**Two-case trial, not a benchmark.** The full 26-case evaluation has not been run, and two cases
-are too few to compare the setups. Cost is unknown because PatchPilot has no Groq prices. The
-cached input in the baseline was reported by Groq; PatchPilot's caching markers apply to Claude
-only. [Raw data](eval/results/20261126-185934.json).
-
-Run (UTC): 2026-11-26 18:59, PatchPilot: 0.1.0, provider: groq, large model: openai/gpt-oss-120b, small model: openai/gpt-oss-20b, prompt: v2, effort: medium
+Run (UTC): 2026-11-26 20:32, PatchPilot: 0.1.0, provider: groq, large model: openai/gpt-oss-120b, small model: openai/gpt-oss-20b, prompt: v2, effort: medium, prices (USD per million input/output tokens): openai/gpt-oss-120b 0.15/0.6 and openai/gpt-oss-20b 0.075/0.3
 
 | Configuration | Cases | Caught by review | Caught by tests | Caught (either) | Input tokens | Cached input | Output tokens | Total cost (USD) | Cost per caught bug (USD) | API time (s) | Errors |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| baseline | 2 | 2 | 2 | 2 | 1904 | 256 | 2289 | unknown | n/a | 6.5 | 0 |
-| optimised | 2 | 2 | 2 | 2 | 1904 | 0 | 2879 | unknown | n/a | 4.7 | 0 |
+| baseline | 26 | 23 | 21 | 25 | 24786 | 4096 | 29307 | 0.0210 | 0.0008 | 85.0 | 0 |
+| optimised | 26 | 18 | 16 | 21 | 23275 | 6656 | 41014 | unknown | n/a | 78.4 | 5 |
 
 Each cell below shows review / tests.
 
@@ -327,7 +323,56 @@ Each cell below shows review / tests.
 |---|---|---|---|
 | 01_pagination | off-by-one | yes / yes | yes / yes |
 | 02_discount | wrong operator | yes / yes | yes / yes |
+| 03_user_email | missing None check | yes / yes | yes / yes |
+| 04_tags | mutable default argument | yes / yes | yes / yes |
+| 05_find_user | SQL injection | yes / no | yes / no |
+| 06_age_gate | wrong comparison | yes / yes | yes / yes |
+| 07_read_names | unclosed resource | yes / no | yes / no |
+| 08_transfer | swapped arguments | yes / yes | yes / yes |
+| 09_access | wrong boolean logic | yes / yes | yes / yes |
+| 10_largest | missing return | no / yes | no / no |
+| 11_average | integer division | yes / yes | no / yes |
+| 12_parse_port | swallowed error | yes / yes | no / no |
+| 13_remove_expired | list changed while iterating | yes / yes | yes / yes |
+| 14_multipliers | late-binding closure | yes / yes | no / no |
+| 15_status | identity instead of equality | yes / yes | yes / yes |
+| 16_grid | shared inner list | yes / yes | no / yes |
+| 17_warmest | wrong initial value | yes / yes | yes / yes |
+| 18_all_positive | early return in loop | yes / no | yes / yes |
+| 19_download | path traversal | yes / yes | no / yes |
+| 20_success_rate | unhandled empty input | yes / yes | yes / yes |
+| 21_recent | slice boundary | no / yes | no / no |
+| 22_word_counts | missing dictionary default | yes / yes | yes / no |
+| 23_factorial | missing base case | yes / yes | no / no |
+| 24_summary | iterator used twice | yes / yes | yes / yes |
+| 25_ping | shell injection | no / no | yes / no |
+| 26_counter | lock not released | yes / no | yes / no |
 <!-- eval:end -->
+
+[Raw data](eval/results/20261126-203225.json), including every review comment and generated test.
+
+#### Reading these results
+
+- **The baseline did better.** Review or tests caught 25 of 26 bugs, against 21 for the optimised
+  setup.
+- **The five errors are part of the result.** All came from the small model, `gpt-oss-20b`: Groq
+  rejected 3 replies as invalid JSON, and 2 replies did not match the expected structure. None was
+  a rate limit.
+- **The total optimised cost is unknown,** because rejected requests report no tokens. On the 23
+  cases where both costs are known, optimised cost $0.0142 against $0.0188 and caught 18 bugs
+  against 22. These are list prices.
+- **The small model wrote more and tested worse.** It used more output tokens (41,014 against
+  29,307, counting only requests that reported them) and more of its tests failed on correct code
+  (23 of 130, against 16 of 148).
+- **The review score depends heavily on line numbers.** A reading of the comments by Claude, made
+  after the run, found that every case scored as missed by review did have a comment describing the
+  planted bug but citing another line, except the 2 where the request failed. Counted that way,
+  review would score 26 of 26 for the baseline and 24 of 26 for optimised. This is a judgement
+  made after seeing the results, not the defined measure, and it has not been independently
+  checked.
+
+One run on small synthetic cases, each shown as a new file. Groq applies its own prompt caching,
+so the cached input and cost are not controlled by PatchPilot's caching switches.
 
 ## Safety
 
@@ -346,8 +391,8 @@ Each cell below shows review / tests.
 
 ## Limitations
 
-- No benchmark results yet, only a two-case trial with Groq. The other providers have not returned
-  a real reply, and the GitHub Action has not been exercised with a key.
+- One evaluation run, with Groq only. The other providers have not returned a real reply, and the
+  GitHub Action has not been exercised with a key.
 - `Dockerfile` is for the command line; the web page uses `Dockerfile.web`. The page's model list
   holds only each provider's defaults.
 - Outside Claude, nothing forces the reply to match the expected structure, so some requests may

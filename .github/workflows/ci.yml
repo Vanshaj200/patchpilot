@@ -35,3 +35,12 @@ jobs:
           cp eval/cases/01_pagination/good.py smoke/pagination.py
           cp eval/cases/01_pagination/test_oracle.py smoke/oracle.py
           docker run --rm --volume "$PWD/smoke:/work" patchpilot run oracle.py
+      - run: docker build --file Dockerfile.web --tag patchpilot-web .
+      - name: Start the hosted web image and check it
+        run: |
+          docker run --detach --name web --env PORT=10000 --publish 10000:10000 patchpilot-web
+          curl --fail --silent --retry 30 --retry-delay 1 --retry-all-errors \
+            http://localhost:10000/healthz
+          curl --fail --silent http://localhost:10000/api/config | grep '"hosted":true'
+          curl --fail --silent http://localhost:10000/ | grep '<title>PatchPilot</title>'
+          docker rm --force web

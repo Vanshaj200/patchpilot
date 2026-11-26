@@ -1,0 +1,14 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# No environment variables: the server must not hold any API key.
+services:
+  - type: web
+    name: patchpilot
+    runtime: docker
+    plan: free
+    # The region cannot be changed after the service is created.
+    region: singapore
+    dockerfilePath: ./Dockerfile.web
+    dockerContext: .
+    healthCheckPath: /healthz
+    # Deploy a new commit on main only after the CI checks pass.
+    autoDeployTrigger: checksPass

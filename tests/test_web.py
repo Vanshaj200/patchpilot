@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 
 from patchpilot import cli
 from patchpilot.config import PROVIDERS, Settings
+from patchpilot.ratelimit import RateLimiter
 from patchpilot.web import PYODIDE_SOURCE, create_app
 
 CODE = "def total(items):\n    return sum(items[1:])\n"
@@ -259,6 +260,130 @@ def test_other_host_names_are_refused(api: FakeAPI) -> None:
     assert outsider.get("/api/providers").status_code == 400
     assert outsider.post("/api/review", json=job()).status_code == 400
     assert api.requests == []
+
+
+@pytest.fixture
+def public(api: FakeAPI) -> TestClient:
+    """A hosted server, reached by its public name."""
+    app = create_app(api.http_client(), hosted=True)
+    return TestClient(app, base_url="https://patchpilot.example")
+
+
+@pytest.mark.parametrize("hosted", [True, False])
+def test_page_is_told_which_mode_it_is_in(api: FakeAPI, hosted: bool) -> None:
+    app = create_app(api.http_client(), hosted=hosted)
+    client = TestClient(app, base_url="http://127.0.0.1")
+
+    assert client.get("/api/config").json() == {"hosted": hosted}
+    assert client.get("/healthz").status_code == 200
+    assert ("strict-transport-security" in client.get("/").headers) is hosted
+
+
+def test_hosted_server_offers_no_local_model_and_reveals_no_saved_keys(
+    public: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "owners-key")
+
+    listed = {item["name"]: item for item in public.get("/api/providers").json()}
+
+    assert "ollama-local" not in listed
+    assert not any(item["has_saved_key"] for item in listed.values())
+    response = public.post("/api/review", json=job(provider="ollama-local"))
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("source", ["environment", "dotenv file"])
+@pytest.mark.parametrize("provider", ["anthropic", "groq", "nvidia", "deepseek", "ollama"])
+def test_hosted_server_never_spends_the_owners_key(
+    public: TestClient,
+    api: FakeAPI,
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+    provider: str,
+) -> None:
+    variable = f"{provider.upper()}_API_KEY"
+    if source == "environment":
+        monkeypatch.setenv(variable, "owners-key")
+    else:
+        Path(".env").write_text(f"{variable}=owners-key\n")
+
+    response = public.post("/api/review", json=job(provider=provider, api_key=" "))
+
+    assert response.status_code == 400
+    assert "your own API key" in response.json()["detail"]
+    assert api.requests == []
+
+
+def test_hosted_review_uses_only_the_visitors_key_and_stores_nothing(
+    public: TestClient, api: FakeAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "owners-key")
+    monkeypatch.setenv("GROQ_API_KEY", "owners-other-key")
+
+    response = public.post("/api/review", json=job())
+
+    assert response.status_code == 200
+    assert response.json()["usage"]["input_tokens"] == 100
+    request = api.requests[0]
+    assert request.headers["authorization"] == "Bearer typed-key"
+    assert "owners" not in str(dict(request.headers)) + request.content.decode()
+    assert list(Path.cwd().iterdir()) == []
+
+
+def test_hosted_requests_give_up_sooner(public: TestClient, api: FakeAPI) -> None:
+    error = {"type": "error", "error": {"type": "overloaded_error", "message": "busy"}}
+    api.responses = [httpx2.Response(529, json=error, headers={"retry-after-ms": "1"})]
+
+    assert public.post("/api/review", json=job()).status_code == 502
+
+    assert len(api.requests) == 2  # one retry instead of two
+    assert api.requests[0].extensions["timeout"]["read"] == 60
+
+
+def test_hosted_server_limits_each_visitor_and_everyone_together(api: FakeAPI) -> None:
+    app = create_app(api.http_client(), hosted=True, limiter=RateLimiter(per_client=2, total=3))
+    client = TestClient(app, base_url="https://patchpilot.example")
+
+    def post(address: str) -> int:
+        headers = {"x-forwarded-for": f"{address}, 10.0.0.1"}
+        return client.post("/api/review", json=job(), headers=headers).status_code
+
+    assert [post("1.1.1.1"), post("1.1.1.1"), post("1.1.1.1")] == [200, 200, 429]
+    assert [post("2.2.2.2"), post("3.3.3.3")] == [200, 429]
+    assert len(api.requests) == 3
+    assert client.get("/").status_code == 200  # reading the page is not limited
+
+
+def test_local_server_is_not_rate_limited(client: TestClient) -> None:
+    codes = {client.post("/api/review", json=job()).status_code for _ in range(15)}
+
+    assert codes == {200}
+
+
+def test_oversized_requests_are_refused_unread(public: TestClient, api: FakeAPI) -> None:
+    response = public.post("/api/review", json=job(text="x" * 1_100_000))
+
+    assert response.status_code == 413
+    assert api.requests == []
+
+
+def test_serve_command_hosts_on_all_addresses_without_saved_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started: dict[str, object] = {}
+
+    def fake_run(app: object, **options: object) -> None:
+        started.update(options, app=app)
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+    monkeypatch.setenv("PORT", "12345")
+
+    result = CliRunner().invoke(cli.app, ["serve"])
+
+    assert result.exit_code == 0
+    assert (started["host"], started["port"]) == ("0.0.0.0", 12345)
+    served = TestClient(started["app"], base_url="https://patchpilot.example")
+    assert served.get("/api/config").json() == {"hosted": True}
 
 
 def test_web_command_listens_on_this_computer_only(monkeypatch: pytest.MonkeyPatch) -> None:
